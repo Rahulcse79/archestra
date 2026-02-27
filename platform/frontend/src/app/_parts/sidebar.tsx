@@ -110,6 +110,12 @@ const contentNavGroups: NavGroup[] = [
           pathname.startsWith("/mcp-catalog"),
         subItems: [
           {
+            title: "New MCP Registry",
+            url: "/new-mcp-registry",
+            customIsActive: (pathname: string) =>
+              pathname.startsWith("/new-mcp-registry"),
+          },
+          {
             title: "Gateways",
             url: "/mcp-gateways",
             customIsActive: (pathname: string) =>
