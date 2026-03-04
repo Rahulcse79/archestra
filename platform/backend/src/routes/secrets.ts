@@ -2,7 +2,7 @@ import { RouteId, SecretsManagerType } from "@shared";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import SecretModel from "@/models/secret";
-import { isByosEnabled, secretManager } from "@/secrets-manager";
+import { secretManager } from "@/secrets-manager";
 import {
   ApiError,
   constructResponseSchema,
@@ -48,9 +48,8 @@ const secretsRoutes: FastifyPluginAsyncZod = async (fastify) => {
       },
     },
     async ({ params: { id } }, reply) => {
-      // Security: Only allow access to secrets when BYOS is enabled or the secret is a BYOS secret.
-      // This prevents exposing actual secret values (API keys, tokens, etc.) when BYOS is not enabled.
-      // When BYOS is enabled, secrets contain vault references (safe to expose) rather than actual values.
+      // Security: Only expose BYOS secrets (which contain vault references, safe to expose).
+      // Non-BYOS secrets contain actual values (API keys, tokens, etc.) and must not be leaked.
       const secret = await SecretModel.findById(id);
 
       if (!secret) {
@@ -62,7 +61,7 @@ const secretsRoutes: FastifyPluginAsyncZod = async (fastify) => {
       if (!secret.isByosVault) {
         throw new ApiError(
           403,
-          "Access to secrets is only allowed for BYOS (Bring Your Own Secrets) secrets when BYOS is enabled",
+          "Access to non-BYOS secrets is not allowed via this endpoint",
         );
       }
 

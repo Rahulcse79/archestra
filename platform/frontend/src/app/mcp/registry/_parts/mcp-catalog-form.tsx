@@ -18,6 +18,17 @@ import {
 } from "@/components/agent-labels";
 import { EnvironmentVariablesFormField } from "@/components/environment-variables-form-field";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -383,21 +394,44 @@ export function McpCatalogForm({
                       variable secrets are still stored in the database. Delete
                       them and recreate with vault references.
                     </span>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={deleteLocalConfigSecret.isPending}
-                      onClick={() =>
-                        initialValues?.id &&
-                        deleteLocalConfigSecret.mutate(initialValues.id)
-                      }
-                    >
-                      {deleteLocalConfigSecret.isPending
-                        ? "Deleting..."
-                        : "Delete secrets"}
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={deleteLocalConfigSecret.isPending}
+                        >
+                          {deleteLocalConfigSecret.isPending
+                            ? "Deleting..."
+                            : "Delete secrets"}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete database-stored secrets?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently delete the environment
+                            variable secrets stored in the database. You will
+                            need to recreate them as vault references.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() =>
+                              initialValues?.id &&
+                              deleteLocalConfigSecret.mutate(initialValues.id)
+                            }
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </AlertDescription>
                 </Alert>
               )}
