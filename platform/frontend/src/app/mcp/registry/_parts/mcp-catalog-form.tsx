@@ -2,7 +2,13 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { archestraApiTypes } from "@shared";
-import { AlertCircle, ChevronRight, Plus, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  ChevronRight,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { lazy, useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import {
@@ -11,7 +17,7 @@ import {
   type ProfileLabelsRef,
 } from "@/components/agent-labels";
 import { EnvironmentVariablesFormField } from "@/components/environment-variables-form-field";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -41,7 +47,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useFeatureFlag, useFeatureValue } from "@/lib/features.hook";
-import { useK8sImagePullSecrets } from "@/lib/internal-mcp-catalog.query";
+import {
+  useDeleteCatalogLocalConfigSecret,
+  useK8sImagePullSecrets,
+} from "@/lib/internal-mcp-catalog.query";
 import { useGetSecret } from "@/lib/secrets.query";
 import {
   formSchema,
@@ -75,10 +84,29 @@ export function McpCatalogForm({
   // Check if BYOS feature is available (enterprise license)
   const showByosOption = useFeatureFlag("byosEnabled");
   // Fetch local config secret if it exists (only needed for BYOS vault references)
-  const { data: localConfigSecret } = useGetSecret({
+  // Silent because non-BYOS (DB-stored) secrets return 403/404 — that's expected
+  // and we detect it via hasStaleDbSecret below.
+  const { data: localConfigSecret, isLoading: isLoadingSecret } = useGetSecret({
     secretId: initialValues?.localConfigSecretId ?? null,
     enabled: showByosOption,
+    silent: true,
   });
+
+  // Detect DB-stored secrets that can't be resolved when readonly vault is enabled
+  const hasStaleDbSecret =
+    // READONLY_VAULT mode is active (enterprise feature)
+    showByosOption &&
+    // Editing an existing catalog item (not creating a new one)
+    mode === "edit" &&
+    // The catalog item references a secret row in the DB
+    !!initialValues?.localConfigSecretId &&
+    // GET /api/secrets/:id returned null — the secret is either non-BYOS (403)
+    // or missing (404), meaning it can't be resolved as a vault reference
+    !localConfigSecret &&
+    // The query has finished — null is a real result, not "still loading"
+    !isLoadingSecret;
+
+  const deleteLocalConfigSecret = useDeleteCatalogLocalConfigSecret();
 
   // Get MCP server base image from backend features endpoint
   const mcpServerBaseImage = useFeatureValue("mcpServerBaseImage") ?? "";
@@ -345,6 +373,35 @@ export function McpCatalogForm({
                 )}
               />
 
+              {hasStaleDbSecret && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Database-stored secrets detected</AlertTitle>
+                  <AlertDescription className="flex items-center justify-between gap-4">
+                    <span>
+                      External Vault storage is enabled, but environment
+                      variable secrets are still stored in the database. Delete
+                      them and recreate with vault references.
+                    </span>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={deleteLocalConfigSecret.isPending}
+                      onClick={() =>
+                        initialValues?.id &&
+                        deleteLocalConfigSecret.mutate(initialValues.id)
+                      }
+                    >
+                      {deleteLocalConfigSecret.isPending
+                        ? "Deleting..."
+                        : "Delete secrets"}
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <EnvironmentVariablesFormField
                 control={form.control}
                 fields={fields}
@@ -353,6 +410,7 @@ export function McpCatalogForm({
                 fieldNamePrefix="localConfig.environment"
                 form={form}
                 useExternalSecretsManager={showByosOption}
+                disabled={hasStaleDbSecret}
               />
 
               <FormField

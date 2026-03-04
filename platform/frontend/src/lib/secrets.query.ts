@@ -24,9 +24,12 @@ export function useSecretsType() {
 export function useGetSecret({
   secretId,
   enabled,
+  silent = false,
 }: {
   secretId: string | null | undefined;
   enabled: boolean;
+  /** When true, suppress error toasts (useful when 403/404 is expected) */
+  silent?: boolean;
 }) {
   return useQuery({
     queryKey: secretsKeys.byId(secretId ?? ""),
@@ -36,7 +39,9 @@ export function useGetSecret({
       }
       const response = await getSecret({ path: { id: secretId } });
       if (response.error) {
-        handleApiError(response.error);
+        if (!silent) {
+          handleApiError(response.error);
+        }
         return null;
       }
       return response.data;

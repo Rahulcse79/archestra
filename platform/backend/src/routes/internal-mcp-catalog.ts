@@ -657,6 +657,44 @@ const internalMcpCatalogRoutes: FastifyPluginAsyncZod = async (fastify) => {
   );
 
   fastify.delete(
+    "/api/internal_mcp_catalog/:id/local-config-secret",
+    {
+      schema: {
+        operationId: RouteId.DeleteInternalMcpCatalogItemLocalConfigSecret,
+        description:
+          "Delete the DB-stored local config secret for a catalog item",
+        tags: ["MCP Catalog"],
+        params: z.object({
+          id: UuidIdSchema,
+        }),
+        response: constructResponseSchema(DeleteObjectResponseSchema),
+      },
+    },
+    async ({ params: { id } }, reply) => {
+      if (isBuiltInCatalogId(id)) {
+        throw new ApiError(403, "Built-in catalog items cannot be modified");
+      }
+
+      const catalogItem = await InternalMcpCatalogModel.findById(id, {
+        expandSecrets: false,
+      });
+
+      if (!catalogItem) {
+        throw new ApiError(404, "Catalog item not found");
+      }
+
+      if (catalogItem.localConfigSecretId) {
+        await secretManager().deleteSecret(catalogItem.localConfigSecretId);
+        await InternalMcpCatalogModel.update(id, {
+          localConfigSecretId: null,
+        });
+      }
+
+      return reply.send({ success: true });
+    },
+  );
+
+  fastify.delete(
     "/api/internal_mcp_catalog/by-name/:name",
     {
       schema: {

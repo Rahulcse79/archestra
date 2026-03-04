@@ -78,6 +78,8 @@ interface EnvironmentVariablesFormFieldProps<TFieldValues extends FieldValues> {
   showDescription?: boolean;
   /** When true, non-prompted secret values will be sourced from external secrets manager (Vault) */
   useExternalSecretsManager?: boolean;
+  /** When true, all inputs and buttons are disabled */
+  disabled?: boolean;
 }
 
 export function EnvironmentVariablesFormField<
@@ -92,6 +94,7 @@ export function EnvironmentVariablesFormField<
   showLabel = true,
   showDescription = true,
   useExternalSecretsManager = false,
+  disabled = false,
 }: EnvironmentVariablesFormFieldProps<TFieldValues>) {
   // State for external secret dialog
   const [dialogOpenForEnvIndex, setDialogOpenForEnvIndex] = useState<
@@ -121,13 +124,14 @@ export function EnvironmentVariablesFormField<
       : "";
 
   return (
-    <div className="space-y-1">
+    <fieldset disabled={disabled} className="space-y-1">
       <div className="flex items-center justify-between">
         {showLabel && <FormLabel>Environment Variables</FormLabel>}
         <Button
           type="button"
           variant="outline"
           size="sm"
+          disabled={disabled}
           onClick={() =>
             (append as (value: unknown) => void)({
               key: "",
@@ -472,6 +476,7 @@ export function EnvironmentVariablesFormField<
             type="button"
             variant="outline"
             size="sm"
+            disabled={disabled}
             onClick={() =>
               (append as (value: unknown) => void)({
                 key: "",
@@ -718,7 +723,7 @@ export function EnvironmentVariablesFormField<
         }
         onClose={() => setDialogOpenForEnvIndex(null)}
       />
-    </div>
+    </fieldset>
   );
 }
 

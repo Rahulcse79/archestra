@@ -5,6 +5,7 @@ import { toast } from "sonner";
 const {
   createInternalMcpCatalogItem,
   deleteInternalMcpCatalogItem,
+  deleteInternalMcpCatalogItemLocalConfigSecret,
   getDeploymentYamlPreview,
   getInternalMcpCatalog,
   getInternalMcpCatalogTools,
@@ -89,6 +90,27 @@ export function useDeleteInternalMcpCatalogItem() {
     onError: (error) => {
       console.error("Delete error:", error);
       toast.error("Failed to delete catalog item");
+    },
+  });
+}
+
+export function useDeleteCatalogLocalConfigSecret() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await deleteInternalMcpCatalogItemLocalConfigSecret({
+        path: { id },
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mcp-catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["secrets"] });
+      toast.success("Database-stored secrets deleted successfully");
+    },
+    onError: (error) => {
+      console.error("Delete local config secret error:", error);
+      toast.error("Failed to delete database-stored secrets");
     },
   });
 }

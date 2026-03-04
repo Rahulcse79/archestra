@@ -284,6 +284,9 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.DeleteInternalMcpCatalogItemByName]: {
     internalMcpCatalog: ["delete"],
   },
+  [RouteId.DeleteInternalMcpCatalogItemLocalConfigSecret]: {
+    internalMcpCatalog: ["update"],
+  },
   [RouteId.GetInternalMcpCatalogLabelKeys]: {
     internalMcpCatalog: ["read"],
   },
