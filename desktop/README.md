@@ -1,23 +1,26 @@
 # Archestra Desktop
 
-A native desktop application that lets users run Archestra without pre-installing Docker or Kubernetes. Built with [Tauri](https://tauri.app/) for cross-platform support (macOS, Windows, Linux).
+Native desktop app that lets users run Archestra with one click — no need to manually install Docker, Kubernetes, or run CLI commands. Built with [Tauri v2](https://tauri.app/) (Rust + WebView).
 
-## Architecture
+This folder is **fully self-contained** and has zero dependencies on the `platform/` codebase. The app is a thin management shell around the existing `archestra/platform` Docker image.
 
-The desktop app is a **thin shell** around the existing `archestra/platform` Docker image. It manages:
+## What It Does
 
-1. **Container Runtime** - Starts/manages a lightweight Linux VM (Colima on macOS, WSL2 on Windows, native Docker on Linux)
-2. **Container Lifecycle** - Pulls, starts, stops, and restarts the Archestra container
-3. **Auto-Updates** - Detects new Docker images on Docker Hub and prompts the user to upgrade
-4. **Logs Inspector** - Streams and filters container and MCP server pod logs
-5. **Pod Manager** - Lists, restarts, deletes, and inspects KinD cluster pods
-6. **Drizzle Studio** - Toggle database UI on/off inside the container
+The app manages everything needed to run Archestra locally:
+
+- **Runtime management** — Detects and starts a container runtime automatically (Colima on macOS, WSL2 on Windows, native Docker on Linux)
+- **Container lifecycle** — Starts, stops, restarts the `archestra/platform` container with the right ports and volumes
+- **Logs inspector** — View container logs with source/level filtering, search, and download
+- **Pod manager** — List, restart, delete, and inspect MCP server pods running in the KinD cluster inside the container
+- **Drizzle Studio** — Toggle the database browser UI on/off inside the running container
+- **Auto-updates** — Checks Docker Hub for new image versions and prompts to pull
 
 ```
 ┌──────────────────────────────────────┐
 │        Tauri App (native shell)      │
 │  ┌────────────────────────────────┐  │
 │  │  WebView UI (HTML/CSS/JS)     │  │
+│  │  ui/index.html + app.js       │  │
 │  └────────────────────────────────┘  │
 │  ┌────────────────────────────────┐  │
 │  │  Rust Backend                 │  │
@@ -35,74 +38,198 @@ The desktop app is a **thin shell** around the existing `archestra/platform` Doc
     └───────────────────────────┘
 ```
 
-## Prerequisites
+---
 
-- [Rust](https://rustup.rs/) (for building)
-- Tauri CLI: `cargo install tauri-cli`
-- Platform-specific Tauri dependencies: https://v2.tauri.app/start/prerequisites/
+## Running Locally (Dev Mode)
 
-## Development
+### 1. Install Rust
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### 2. Install Tauri CLI
+
+```bash
+cargo install tauri-cli --version "^2"
+```
+
+### 3. Install platform-specific system dependencies
+
+**macOS:**
+```bash
+xcode-select --install
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+**Windows:**
+- Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-studio-build-tools/) with the "Desktop development with C++" workload
+- Install [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (comes with Windows 11, manual install on Windows 10)
+
+### 4. Run in dev mode
 
 ```bash
 cd desktop
 cargo tauri dev
 ```
 
-## Build
+First run takes 2-4 minutes (compiling Rust deps). After that, the Rust backend recompiles incrementally (~15-30s) and the WebView UI (HTML/CSS/JS) hot-reloads instantly.
+
+The app window will open automatically. It will try to detect your container runtime and connect to a running Archestra container.
+
+---
+
+## Building Installers
+
+### Build for your current platform
 
 ```bash
-# Build for current platform
+cd desktop
 cargo tauri build
-
-# Output locations:
-# macOS: target/release/bundle/dmg/Archestra_0.1.0_*.dmg
-# Windows: target/release/bundle/msi/Archestra_0.1.0_*.msi
-# Linux: target/release/bundle/appimage/Archestra_0.1.0_*.AppImage
-#        target/release/bundle/deb/archestra-desktop_0.1.0_*.deb
 ```
+
+First build takes 3-8 minutes. Subsequent builds take 30-90 seconds.
+
+### Output locations
+
+| Platform | Format | Path | Typical Size |
+|----------|--------|------|-------------|
+| macOS | `.dmg` | `target/release/bundle/dmg/Archestra_0.1.0_*.dmg` | 8-15 MB |
+| Windows | `.msi` | `target/release/bundle/msi/Archestra_0.1.0_*.msi` | 5-10 MB |
+| Linux | `.AppImage` | `target/release/bundle/appimage/Archestra_0.1.0_*.AppImage` | 10-18 MB |
+| Linux | `.deb` | `target/release/bundle/deb/archestra-desktop_0.1.0_*.deb` | 4-8 MB |
+
+### Cross-platform builds
+
+You **cannot** cross-compile Tauri apps. To build for all platforms, you need CI with separate runners for each OS (e.g. GitHub Actions with `macos-latest`, `ubuntu-latest`, `windows-latest`).
+
+### Note on code signing
+
+Currently unsigned. Users will see OS warnings:
+- **macOS**: Right-click → Open to bypass Gatekeeper
+- **Windows**: Click "More info" → "Run anyway" on SmartScreen
+- **Linux**: No signing needed
+
+---
 
 ## Project Structure
 
 ```
 desktop/
-├── Cargo.toml                 # Rust dependencies
-├── build.rs                   # Tauri build script
+├── Cargo.toml                  # Rust dependencies (tauri, tokio, reqwest, serde, etc.)
+├── build.rs                    # Tauri build script (required by Tauri)
+├── .gitignore                  # Ignores target/, gen/, .DS_Store
+│
 ├── src-tauri/
-│   ├── tauri.conf.json        # Tauri configuration
-│   ├── capabilities/          # Permission definitions
+│   ├── tauri.conf.json         # App config: window size, ports, bundle settings, plugin permissions
+│   ├── capabilities/
+│   │   └── default.json        # WebView permission grants (shell, notifications)
+│   ├── icons/                  # App icons (add .icns, .ico, .png before building)
 │   └── src/
-│       ├── main.rs            # Entry point
-│       ├── lib.rs             # Command registration
-│       ├── state.rs           # App state and config persistence
-│       ├── runtime.rs         # Container runtime detection and management
-│       ├── container.rs       # Docker container lifecycle
-│       ├── logs.rs            # Log fetching and parsing
-│       ├── pods.rs            # Kubernetes pod management via kubectl
-│       └── updater.rs         # Docker Hub update checking
+│       ├── main.rs             # Entry point, just calls lib::run()
+│       ├── lib.rs              # Registers all Tauri commands and plugins, sets up app state
+│       ├── state.rs            # AppState struct, config persistence to ~/.config/archestra-desktop/
+│       ├── runtime.rs          # Detects and manages container runtimes (Colima/Lima/Docker/Podman/WSL2)
+│       ├── container.rs        # Docker container start/stop/restart, Drizzle Studio toggle
+│       ├── logs.rs             # Fetches container logs via `docker logs`, parses source/level
+│       ├── pods.rs             # Runs kubectl inside the container to manage KinD pods
+│       └── updater.rs          # Compares local image digest with Docker Hub to detect updates
+│
 └── ui/
-    ├── index.html             # Main UI layout
-    ├── styles.css             # Dark theme styles
-    └── app.js                 # Application logic and Tauri IPC
+    ├── index.html              # Single-page app layout: sidebar nav + 5 tab panels
+    ├── styles.css              # Dark theme, status indicators, log viewer, pod cards
+    └── app.js                  # All frontend logic: Tauri IPC calls, tab switching, state management
 ```
 
-## How It Works
+---
 
-### Runtime Detection Priority
+## How the Rust Backend Works
+
+### Runtime detection (`runtime.rs`)
+
+On startup, the app checks which container runtime is available. Priority order:
+
 1. **Linux**: Native Docker (no VM needed)
-2. **macOS**: Colima > Lima > Docker Desktop > Podman
-3. **Windows**: Docker Desktop > WSL2 > Podman
+2. **macOS**: Colima → Lima → Docker Desktop → Podman
+3. **Windows**: Docker Desktop → WSL2 → Podman
 
-### Release Process
-The desktop app is **decoupled** from Archestra releases. When a new `archestra/platform` image is pushed to Docker Hub:
-1. The app detects the new digest via Docker Hub API
-2. Shows an "Update available" notification
-3. User clicks update → pulls new image → restarts container
+The `start_runtime` command launches the VM with configured CPU/memory limits (applies to Colima/Lima only — Docker Desktop manages its own VM).
 
-The app shell itself only needs a new release when the shell UI/features change.
+### Container management (`container.rs`)
 
-## No Code Signing (Current)
+Runs the `archestra/platform` image with these defaults:
+- Ports: `3000` (frontend), `9000` (backend), `4983` (Drizzle Studio)
+- Volumes: `archestra-postgres-data`, `archestra-app-data`, Docker socket
+- Env: `ARCHESTRA_QUICKSTART=true`
+- Restart policy: `unless-stopped`
 
-The app is currently distributed without code signing:
-- **macOS**: Users right-click → Open to bypass Gatekeeper
-- **Windows**: Users click "More info" → "Run anyway" on SmartScreen
-- **Linux**: No signing required
+All configurable via the Settings tab. Config is persisted to `~/.config/archestra-desktop/config.json`.
+
+### Pod management (`pods.rs`)
+
+Runs `kubectl` commands **inside** the Archestra container (where KinD is running):
+```
+docker exec archestra -- kubectl get pods ...
+```
+
+This avoids needing kubectl installed on the host or merging kubeconfigs.
+
+### Update checking (`updater.rs`)
+
+Compares the local image's `RepoDigests` with the Docker Hub tag API. If digests differ, shows an update notification. Pulling is a single `docker pull` — user then restarts the container to use the new image.
+
+### Log parsing (`logs.rs`)
+
+Fetches logs via `docker logs --timestamps`, then classifies each line by:
+- **Source**: backend, frontend, postgres, kind, supervisor, system (based on keywords in the line)
+- **Level**: error, warn, info, debug (based on keywords)
+
+Pod-specific logs are fetched via the Archestra backend REST API (`/api/mcp_server/:id/logs`).
+
+---
+
+## How the UI Works (`ui/`)
+
+Plain HTML/CSS/JS — no build step, no framework. Communicates with Rust via Tauri's `invoke()` IPC.
+
+### Tabs
+
+| Tab | What it shows |
+|-----|--------------|
+| **Home** | Dashboard with runtime/container/image/cluster status cards, quick links to open frontend/backend/Drizzle in browser |
+| **Logs** | Container log viewer with source filter, level filter, text search, auto-scroll, and download button |
+| **Pods** | List of MCP server pods with status, restarts, CPU/memory usage. Actions: view logs, describe, restart, delete |
+| **Database** | Toggle Drizzle Studio on/off, open in browser |
+| **Settings** | Configure image, container name, ports, CPU/memory limits, auto-update preference |
+
+### Auto-refresh
+
+Container status polls every 10 seconds. Update check runs 5 seconds after startup (if auto-update is enabled).
+
+---
+
+## Before You Build: Add Icons
+
+Tauri requires app icons. Generate them from a 1024x1024 PNG:
+
+```bash
+cargo tauri icon path/to/your-icon.png
+```
+
+This creates all required sizes in `src-tauri/icons/`. Without icons, `cargo tauri build` will fail.
+
+---
+
+## Relationship to Platform
+
+This app is **decoupled** from the `platform/` codebase:
+
+- No shared code, no shared dependencies, no imports between them
+- The Docker image (`archestra/platform:latest`) is the only interface
+- Updating the platform means pushing a new Docker image — the desktop app detects it and prompts the user
+- The desktop app only needs a new release when the shell UI or management features change
