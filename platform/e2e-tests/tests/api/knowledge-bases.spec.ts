@@ -484,11 +484,12 @@ test.describe("Knowledge Bases API", () => {
       await deleteKnowledgeBase(request, kg.id);
     });
 
-    test("connectors are cascade-deleted when KG is deleted", async ({
+    test("connector survives when assigned KB is deleted, but assignment is removed", async ({
       request,
       makeApiRequest,
       createKnowledgeBase,
       createConnector,
+      deleteConnector,
     }) => {
       const uniqueSuffix = crypto.randomUUID().slice(0, 8);
       const kgRes = await createKnowledgeBase(
@@ -504,7 +505,7 @@ test.describe("Knowledge Bases API", () => {
       );
       const connector = await connRes.json();
 
-      // Delete the KG
+      // Delete the KB
       const deleteResponse = await makeApiRequest({
         request,
         method: "delete",
@@ -513,14 +514,25 @@ test.describe("Knowledge Bases API", () => {
       const result = await deleteResponse.json();
       expect(result.success).toBe(true);
 
-      // Verify connector is gone (KG cascade-deleted the connector)
+      // Connector should still exist
       const getResponse = await makeApiRequest({
         request,
         method: "get",
         urlSuffix: `/api/connectors/${connector.id}`,
-        ignoreStatusCheck: true,
       });
-      expect(getResponse.status()).toBe(404);
+      expect(getResponse.status()).toBe(200);
+
+      // But its KB assignment should be gone
+      const assignmentsResponse = await makeApiRequest({
+        request,
+        method: "get",
+        urlSuffix: `/api/connectors/${connector.id}/knowledge-bases`,
+      });
+      const assignments = await assignmentsResponse.json();
+      expect(assignments).toEqual([]);
+
+      // Cleanup
+      await deleteConnector(request, kg.id, connector.id);
     });
   });
 
