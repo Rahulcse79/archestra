@@ -529,7 +529,7 @@ test.describe("Knowledge Bases API", () => {
         urlSuffix: `/api/connectors/${connector.id}/knowledge-bases`,
       });
       const assignments = await assignmentsResponse.json();
-      expect(assignments).toEqual([]);
+      expect(assignments.data).toEqual([]);
 
       // Cleanup
       await deleteConnector(request, kg.id, connector.id);
