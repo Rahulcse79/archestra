@@ -12,6 +12,7 @@ import { executeA2AMessage } from "@/agents/a2a-executor";
 import { userHasPermission } from "@/auth/utils";
 import type { TokenAuthContext } from "@/clients/mcp-client";
 import { getKnowledgeGraphProvider } from "@/knowledge-graph";
+import config from "@/config";
 import logger from "@/logging";
 import {
   AgentModel,
@@ -70,6 +71,7 @@ const TOOL_GET_MCP_SERVER_TOOLS_NAME = "get_mcp_server_tools";
 const TOOL_GET_AGENT_NAME = "get_agent";
 const TOOL_GET_LLM_PROXY_NAME = "get_llm_proxy";
 const TOOL_GET_MCP_GATEWAY_NAME = "get_mcp_gateway";
+const TOOL_GET_MCP_GATEWAYS_NAME = "get_mcp_gateways";
 
 /**
  * Convert a name to a URL-safe slug for tool naming
@@ -111,6 +113,7 @@ const TOOL_GET_MCP_SERVER_TOOLS_FULL_NAME = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_S
 const TOOL_GET_AGENT_FULL_NAME = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_SERVER_TOOL_NAME_SEPARATOR}${TOOL_GET_AGENT_NAME}`;
 const TOOL_GET_LLM_PROXY_FULL_NAME = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_SERVER_TOOL_NAME_SEPARATOR}${TOOL_GET_LLM_PROXY_NAME}`;
 const TOOL_GET_MCP_GATEWAY_FULL_NAME = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_SERVER_TOOL_NAME_SEPARATOR}${TOOL_GET_MCP_GATEWAY_NAME}`;
+const TOOL_GET_MCP_GATEWAYS_FULL_NAME = `${ARCHESTRA_MCP_SERVER_NAME}${MCP_SERVER_TOOL_NAME_SEPARATOR}${TOOL_GET_MCP_GATEWAYS_NAME}`;
 
 /**
  * Context for the Archestra MCP server
@@ -1744,6 +1747,53 @@ export async function executeArchestraTool(
     }
   }
 
+  if (toolName === TOOL_GET_MCP_GATEWAYS_FULL_NAME) {
+    logger.info(
+      { agentId: contextAgent.id },
+      "get_mcp_gateways tool called",
+    );
+
+    try {
+      const allAgents = await AgentModel.findAll(undefined, undefined, {
+        agentType: "mcp_gateway",
+      });
+
+      // Return a concise summary with the fields most useful for downstream tools
+      const gateways = allAgents.map((gw) => ({
+        id: gw.id,
+        name: gw.name,
+        description: gw.description,
+        isDefault: gw.isDefault,
+        labels: gw.labels,
+        mcpEndpointUrl: `${config.frontendBaseUrl.replace(/\/$/, "")}/v1/mcp/${gw.id}`,
+        createdAt: gw.createdAt,
+      }));
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(gateways, null, 2),
+          },
+        ],
+        isError: false,
+      };
+    } catch (error) {
+      logger.error({ err: error }, "Error getting MCP gateways");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error getting MCP gateways: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   if (toolName === TOOL_QUERY_KNOWLEDGE_GRAPH_FULL_NAME) {
     logger.info(
       { agentId: contextAgent.id, queryArgs: args },
@@ -2836,6 +2886,19 @@ export function getArchestraMcpTools(): Tool[] {
           },
         },
         required: ["id"],
+      },
+      annotations: {},
+      _meta: {},
+    },
+    {
+      name: TOOL_GET_MCP_GATEWAYS_FULL_NAME,
+      title: "Get MCP Gateways",
+      description:
+        "List all MCP gateways in the organization. Returns each gateway's id, name, description, labels, and mcpEndpointUrl (the full MCP endpoint URL ready to use). Use this to find an MCP gateway by name.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        required: [],
       },
       annotations: {},
       _meta: {},
