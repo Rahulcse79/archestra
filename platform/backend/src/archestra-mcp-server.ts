@@ -254,7 +254,7 @@ export async function executeArchestraTool(
           userId: userId || "system",
           sessionId,
         },
-        "Executing agent delegation tool",
+        "Executing agent delegation tool LOL",
       );
 
       const result = await executeA2AMessage({
