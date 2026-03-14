@@ -375,9 +375,7 @@ function McpAppContainer({
       ref={containerRef}
       className={cn(
         "will-change-auto origin-center transition-all duration-400 ease-[cubic-bezier(0.23,1,0.32,1)]",
-        isFullscreen
-          ? "fixed z-[100] bg-background flex flex-col"
-          : "p-4 pt-0",
+        isFullscreen ? "fixed z-[100] bg-background flex flex-col" : "p-4 pt-0",
         isFullscreen && !bounds
           ? "opacity-0 scale-95 pointer-events-none"
           : "opacity-100 scale-100",

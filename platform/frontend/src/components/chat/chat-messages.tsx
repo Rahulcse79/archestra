@@ -43,8 +43,8 @@ import {
 import { useHasPermissions, useSession } from "@/lib/auth.query";
 import { useProfileToolsWithIds } from "@/lib/chat.query";
 import { useUpdateChatMessage } from "@/lib/chat-message.query";
-import { useInternalMcpCatalog } from "@/lib/internal-mcp-catalog.query";
 import { useGlobalChat } from "@/lib/global-chat.context";
+import { useInternalMcpCatalog } from "@/lib/internal-mcp-catalog.query";
 import {
   extractCatalogIdFromInstallUrl,
   extractIdsFromReauthUrl,
@@ -770,92 +770,92 @@ export function ChatMessages({
 
                       default: {
                         // data-tool-ui-start: early MCP App initialisation.
-                      // This is the canonical render for the tool UI. It looks ahead
-                      // in the parts array to find the matching input/output parts so
-                      // a single <MessageTool> covers the full lifecycle.
-                      if (part.type?.startsWith("data-tool-ui-start")) {
-                        // biome-ignore lint/suspicious/noExplicitAny: data-tool-ui-start shape is dynamic
-                        const earlyPart = part as any;
-                        const tcId = earlyPart.data?.toolCallId as
-                          | string
-                          | undefined;
-                        const toolName = earlyPart.data?.toolName as
-                          | string
-                          | undefined;
-                        if (!tcId || !toolName) return null;
+                        // This is the canonical render for the tool UI. It looks ahead
+                        // in the parts array to find the matching input/output parts so
+                        // a single <MessageTool> covers the full lifecycle.
+                        if (part.type?.startsWith("data-tool-ui-start")) {
+                          // biome-ignore lint/suspicious/noExplicitAny: data-tool-ui-start shape is dynamic
+                          const earlyPart = part as any;
+                          const tcId = earlyPart.data?.toolCallId as
+                            | string
+                            | undefined;
+                          const toolName = earlyPart.data?.toolName as
+                            | string
+                            | undefined;
+                          if (!tcId || !toolName) return null;
 
-                        // Find the matching tool-* parts (may or may not exist yet)
-                        // biome-ignore lint/suspicious/noExplicitAny: part shape varies
-                        const allParts = (message.parts ?? []) as any[];
-                        const inputPart = allParts.find(
-                          (p) =>
-                            isToolPart(p) &&
-                            p.toolCallId === tcId &&
-                            p.state !== "output-available",
-                        ) as ToolUIPart | undefined;
+                          // Find the matching tool-* parts (may or may not exist yet)
+                          // biome-ignore lint/suspicious/noExplicitAny: part shape varies
+                          const allParts = (message.parts ?? []) as any[];
+                          const inputPart = allParts.find(
+                            (p) =>
+                              isToolPart(p) &&
+                              p.toolCallId === tcId &&
+                              p.state !== "output-available",
+                          ) as ToolUIPart | undefined;
 
-                        const outputPart = (allParts.find(
-                          (p) =>
-                            isToolPart(p) &&
-                            p.toolCallId === tcId &&
-                            p.state === "output-available",
-                        ) ?? null) as ToolUIPart | null;
+                          const outputPart = (allParts.find(
+                            (p) =>
+                              isToolPart(p) &&
+                              p.toolCallId === tcId &&
+                              p.state === "output-available",
+                          ) ?? null) as ToolUIPart | null;
 
-                        // Synthetic part used until the real tool-* part appears.
-                        // If only outputPart exists (tool already done), borrow its input.
-                        const effectivePart = (inputPart ?? {
-                          type: `tool-${toolName}` as `tool-${string}`,
-                          toolCallId: tcId,
-                          state: outputPart
-                            ? ("output-available" as const)
-                            : ("input-streaming" as const),
-                          input: outputPart?.input ?? {},
-                          output: outputPart?.output,
-                        }) as ToolUIPart;
+                          // Synthetic part used until the real tool-* part appears.
+                          // If only outputPart exists (tool already done), borrow its input.
+                          const effectivePart = (inputPart ?? {
+                            type: `tool-${toolName}` as `tool-${string}`,
+                            toolCallId: tcId,
+                            state: outputPart
+                              ? ("output-available" as const)
+                              : ("input-streaming" as const),
+                            input: outputPart?.input ?? {},
+                            output: outputPart?.output,
+                          }) as ToolUIPart;
 
-                        return (
-                          <MessageTool
-                            key={`${message.id}-${tcId}`}
-                            part={effectivePart}
-                            toolResultPart={outputPart}
-                            toolName={toolName}
-                            agentId={agentId}
-                            isDebugging={isDebugging}
-                            canExpandToolCalls={canExpandToolCalls}
-                            onToolApprovalResponse={onToolApprovalResponse}
-                            onInstallMcp={
-                              orchestrator.triggerInstallByCatalogId
-                            }
-                            onReauthMcp={
-                              orchestrator.triggerReauthByCatalogIdAndServerId
-                            }
-                            onSendMessage={(text) =>
-                              session?.sendMessage({
-                                role: "user",
-                                parts: [{ type: "text", text }],
-                              })
-                            }
-                            earlyToolUiData={earlyToolUiStarts[tcId]}
-                          />
-                        );
-                      }
+                          return (
+                            <MessageTool
+                              key={`${message.id}-${tcId}`}
+                              part={effectivePart}
+                              toolResultPart={outputPart}
+                              toolName={toolName}
+                              agentId={agentId}
+                              isDebugging={isDebugging}
+                              canExpandToolCalls={canExpandToolCalls}
+                              onToolApprovalResponse={onToolApprovalResponse}
+                              onInstallMcp={
+                                orchestrator.triggerInstallByCatalogId
+                              }
+                              onReauthMcp={
+                                orchestrator.triggerReauthByCatalogIdAndServerId
+                              }
+                              onSendMessage={(text) =>
+                                session?.sendMessage({
+                                  role: "user",
+                                  parts: [{ type: "text", text }],
+                                })
+                              }
+                              earlyToolUiData={earlyToolUiStarts[tcId]}
+                            />
+                          );
+                        }
 
-                      // Regular tool-* parts: skip if a data-tool-ui-start already
-                      // rendered this toolCallId (it owns the full lifecycle above).
+                        // Regular tool-* parts: skip if a data-tool-ui-start already
+                        // rendered this toolCallId (it owns the full lifecycle above).
                         if (
                           isToolPart(part) &&
                           part.type?.startsWith("tool-")
                         ) {
-                        const tcId = part.toolCallId;
-                        const hasEarlyStart =
-                          tcId &&
-                          (message.parts ?? []).some(
-                            (p) =>
-                              p.type?.startsWith("data-tool-ui-start") &&
-                              (p as { data?: { toolCallId?: string } }).data
-                                ?.toolCallId === tcId,
-                          );
-                        if (hasEarlyStart) return null;
+                          const tcId = part.toolCallId;
+                          const hasEarlyStart =
+                            tcId &&
+                            (message.parts ?? []).some(
+                              (p) =>
+                                p.type?.startsWith("data-tool-ui-start") &&
+                                (p as { data?: { toolCallId?: string } }).data
+                                  ?.toolCallId === tcId,
+                            );
+                          if (hasEarlyStart) return null;
 
                           const toolName = part.type.replace("tool-", "");
 
@@ -1235,15 +1235,15 @@ const MessageTool = memo(
       }
     }
 
-  // swap_agent / swap_to_default_agent are rendered as dividers after all message parts (see SwapAgentDivider below)
-  // Show the raw tool call when the user's name ends with "(debugging)"
-  if (
-    !isDebugging &&
-    (toolName === TOOL_SWAP_AGENT_FULL_NAME ||
-      toolName === TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME)
-  ) {
-    return null;
-  }
+    // swap_agent / swap_to_default_agent are rendered as dividers after all message parts (see SwapAgentDivider below)
+    // Show the raw tool call when the user's name ends with "(debugging)"
+    if (
+      !isDebugging &&
+      (toolName === TOOL_SWAP_AGENT_FULL_NAME ||
+        toolName === TOOL_SWAP_TO_DEFAULT_AGENT_FULL_NAME)
+    ) {
+      return null;
+    }
 
     if (toolName === TOOL_TODO_WRITE_FULL_NAME) {
       return (
