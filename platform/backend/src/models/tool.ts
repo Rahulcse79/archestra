@@ -952,18 +952,12 @@ class ToolModel {
     const mcpTools = await db
       .select({
         toolName: schema.toolsTable.name,
-        responseModifierTemplate:
-          schema.agentToolsTable.responseModifierTemplate,
-        mcpServerSecretId: schema.mcpServersTable.secretId,
-        mcpServerName: schema.mcpServersTable.name,
-        mcpServerCatalogId: schema.mcpServersTable.catalogId,
         credentialSourceMcpServerId:
           schema.agentToolsTable.credentialSourceMcpServerId,
         executionSourceMcpServerId:
           schema.agentToolsTable.executionSourceMcpServerId,
         useDynamicTeamCredential:
           schema.agentToolsTable.useDynamicTeamCredential,
-        mcpServerId: schema.mcpServersTable.id,
         catalogId: schema.toolsTable.catalogId,
         catalogName: schema.internalMcpCatalogTable.name,
       })
@@ -971,10 +965,6 @@ class ToolModel {
       .innerJoin(
         schema.agentToolsTable,
         eq(schema.agentToolsTable.toolId, schema.toolsTable.id),
-      )
-      .leftJoin(
-        schema.mcpServersTable,
-        eq(schema.toolsTable.mcpServerId, schema.mcpServersTable.id),
       )
       .leftJoin(
         schema.internalMcpCatalogTable,

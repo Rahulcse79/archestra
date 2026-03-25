@@ -143,7 +143,8 @@ export function identifyCompactToolGroups(
     const part = parts[i];
     // Skip non-tool parts and MCP App tools (they render their own UI)
     // biome-ignore lint/suspicious/noExplicitAny: checking nested _meta shape on unknown output
-    if (!isToolPart(part) || (part.output as any)?._meta?.ui?.resourceUri) continue;
+    if (!isToolPart(part) || (part.output as any)?._meta?.ui?.resourceUri)
+      continue;
 
     const callId = part.toolCallId;
     if (callId && seenToolCallIds.has(callId)) {

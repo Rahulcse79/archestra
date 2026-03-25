@@ -12,8 +12,8 @@ import { useTheme } from "next-themes";
 import type React from "react";
 import { Component, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { getMcpSandboxBaseUrl } from "@/lib/config";
-import { useFeature } from "@/lib/config.query";
+import { getMcpSandboxBaseUrl } from "@/lib/config/config";
+import { useFeature } from "@/lib/config/config.query";
 import { cn } from "@/lib/utils";
 
 /** MCP CallToolResult — defined inline to avoid direct @modelcontextprotocol/sdk dependency. */

@@ -6,7 +6,7 @@ import {
   TOOL_WHOAMI_SHORT_NAME,
 } from "@shared";
 import { jsonSchema, type Tool } from "ai";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { archestraMcpBranding } from "@/archestra-mcp-server";
 import { TeamTokenModel } from "@/models";
 import ToolModel from "@/models/tool";
@@ -826,6 +826,10 @@ describe("getChatMcpToolUiResourceUris", () => {
 });
 
 describe("fetchToolUiResource", () => {
+  beforeEach(() => {
+    chatClient.clearUiResourceCache();
+  });
+
   // Use real UUIDs — the client is injected directly into the cache, so no DB
   // access is needed and these IDs are never written to the database.
   const AGENT_ID = "00000000-0000-0000-0000-000000000001";

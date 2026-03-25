@@ -47,11 +47,10 @@ import {
 import { useHasPermissions, useSession } from "@/lib/auth/auth.query";
 import { useProfileToolsWithIds } from "@/lib/chat/chat.query";
 import { useUpdateChatMessage } from "@/lib/chat/chat-message.query";
+import { useGlobalChat } from "@/lib/chat/global-chat.context";
 import { hasThinkingTags, parseThinkingTags } from "@/lib/chat/parse-thinking";
 import type { ModelSource } from "@/lib/chat/use-chat-preferences";
 import { useAppIconLogo } from "@/lib/hooks/use-app-name";
-import { useGlobalChat } from "@/lib/global-chat.context";
-import { useInternalMcpCatalog } from "@/lib/internal-mcp-catalog.query";
 import {
   extractCatalogIdFromInstallUrl,
   extractIdsFromReauthUrl,
@@ -1269,19 +1268,19 @@ const MessageTool = memo(
       }
     }
 
-  // swap_agent / swap_to_default_agent are rendered as dividers after all message parts (see SwapAgentDivider below)
-  // Show the raw tool call when the user's name ends with "(debugging)"
-  const swapToolShortName = getSwapToolShortName({
-    toolName,
-    getToolShortName,
-  });
-  if (
-    !isDebugging &&
-    (swapToolShortName === TOOL_SWAP_AGENT_SHORT_NAME ||
-      swapToolShortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME)
-  ) {
-    return null;
-  }
+    // swap_agent / swap_to_default_agent are rendered as dividers after all message parts (see SwapAgentDivider below)
+    // Show the raw tool call when the user's name ends with "(debugging)"
+    const swapToolShortName = getSwapToolShortName({
+      toolName,
+      getToolShortName,
+    });
+    if (
+      !isDebugging &&
+      (swapToolShortName === TOOL_SWAP_AGENT_SHORT_NAME ||
+        swapToolShortName === TOOL_SWAP_TO_DEFAULT_AGENT_SHORT_NAME)
+    ) {
+      return null;
+    }
 
     if (getToolShortName(toolName) === TOOL_TODO_WRITE_SHORT_NAME) {
       return (

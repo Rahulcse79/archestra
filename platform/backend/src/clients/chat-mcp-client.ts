@@ -145,6 +145,11 @@ const uiResourceCache = new LRUCacheManager<ToolUiResourceData | null>({
   defaultTtl: UI_RESOURCE_CACHE_TTL_MS,
 });
 
+/** Exported for test cleanup only. */
+export function clearUiResourceCache(): void {
+  uiResourceCache.clear();
+}
+
 /**
  * Generate cache key from agentId, userId, and optional conversationId.
  * When conversationId is provided, each conversation gets its own MCP client

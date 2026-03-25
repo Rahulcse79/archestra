@@ -225,7 +225,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         promptContext,
       );
 
-      let toolResultInstructions: string;
+      let toolResultInstructions: string = "";
       // Add MCP UI instruction when tools are available
       if (Object.keys(mcpTools).length > 0) {
         toolResultInstructions =
@@ -436,8 +436,9 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                   string,
                   ToolUiResourceData
                 >();
+                const agentIdForUi = conversation.agentId;
                 if (
-                  conversation.agentId &&
+                  agentIdForUi &&
                   Object.keys(toolUiResourceUris).length > 0
                 ) {
                   await Promise.all(
@@ -445,7 +446,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                       async ([toolName, uri]) => {
                         try {
                           const resource = await fetchToolUiResource({
-                            agentId: conversation.agentId!,
+                            agentId: agentIdForUi,
                             userId: user.id,
                             organizationId,
                             userIsAgentAdmin,
@@ -460,10 +461,11 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                                 MAX_SSE_HTML_BYTES
                                 ? resource.html
                                 : undefined;
-                            prefetchedUiResources.set(toolName, {
-                              ...resource,
-                              html,
-                            });
+                            if (html)
+                              prefetchedUiResources.set(toolName, {
+                                ...resource,
+                                html,
+                              });
                           }
                         } catch (err) {
                           logger.debug(

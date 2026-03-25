@@ -1756,7 +1756,6 @@ describe("McpClient", () => {
           description: "Refresh stats",
           parameters: {},
           catalogId,
-          mcpServerId,
         });
 
         await AgentToolModel.create(agentId, tool.id, {
@@ -1804,7 +1803,6 @@ describe("McpClient", () => {
           description: "Tool with meta",
           parameters: {},
           catalogId,
-          mcpServerId,
         });
 
         await AgentToolModel.create(agentId, tool.id, {
@@ -1836,7 +1834,6 @@ describe("McpClient", () => {
           description: "Tool with structured content",
           parameters: {},
           catalogId,
-          mcpServerId,
         });
 
         await AgentToolModel.create(agentId, tool.id, {

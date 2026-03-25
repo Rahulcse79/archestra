@@ -35,14 +35,14 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
-vi.mock("@/lib/config", () => ({
+vi.mock("@/lib/config/config", () => ({
   getMcpSandboxBaseUrl: () => ({
     baseUrl: "http://127.0.0.1:9000",
     hasCrossOrigin: true,
   }),
 }));
 
-vi.mock("@/lib/config.query", () => ({
+vi.mock("@/lib/config/config.query", () => ({
   useFeature: () => null,
 }));
 
