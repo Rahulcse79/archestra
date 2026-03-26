@@ -1,39 +1,4 @@
-# Build KinD and Docker CLI from source with a patched Go toolchain.
-# The Alpine packages/binaries have historically lagged on Go patch releases, so
-# we compile these tools ourselves to pick up upstream fixes without local vendoring hacks.
-ARG GOLANG_IMAGE=golang:1.25.8-alpine@sha256:8e02eb337d9e0ea459e041f1ee5eece41cbb61f1d83e7d883a3e2fb4862063fa
 ARG NODE_IMAGE=node:24-alpine3.23@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114
-ARG KIND_VERSION=v0.31.0
-ARG KIND_COMMIT=a323333ff9efd8099f95a8a6b5c86c75a210d00f
-ARG DOCKER_CLI_VERSION=v29.3.0
-ARG DOCKER_CLI_COMMIT=5927d80c76b3ce5cf782be818922966e8a0d87a3
-
-FROM ${GOLANG_IMAGE} AS go-builder
-ARG TARGETARCH
-ARG KIND_VERSION
-ARG KIND_COMMIT
-ARG DOCKER_CLI_VERSION
-ARG DOCKER_CLI_COMMIT
-RUN if [ "$TARGETARCH" != "amd64" ] && [ "$TARGETARCH" != "arm64" ]; then \
-        echo "ERROR: Unsupported architecture: $TARGETARCH. KinD is only available for amd64 and arm64."; \
-        exit 1; \
-    fi
-RUN apk add --no-cache git
-RUN git clone --depth 1 --branch "${KIND_VERSION}" https://github.com/kubernetes-sigs/kind.git /kind && \
-    test "$(git -C /kind rev-parse HEAD)" = "${KIND_COMMIT}" && \
-    cd /kind && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -o /kind-binary .
-RUN git clone --depth 1 --branch "${DOCKER_CLI_VERSION}" https://github.com/docker/cli.git /docker-cli && \
-    test "$(git -C /docker-cli rev-parse HEAD)" = "${DOCKER_CLI_COMMIT}" && \
-    cd /docker-cli && \
-    cp vendor.mod go.mod && cp vendor.sum go.sum && \
-    # CVE-2026-33186: grpc Improper Authorization fixed in >= 1.79.3
-    # CVE-2026-27141: golang.org/x/net vulnerability fixed in >= 0.51.0
-    go get google.golang.org/grpc@v1.79.3 golang.org/x/net@v0.51.0 && \
-    go mod vendor && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -mod=vendor \
-    -ldflags "-X github.com/docker/cli/cli/version.Version=${DOCKER_CLI_VERSION#v}" \
-    -o /docker-binary ./cmd/docker
 
 FROM ${NODE_IMAGE} AS base
 
@@ -144,29 +109,6 @@ RUN apk --no-cache upgrade && \
     mkdir -p /var/log/supervisor && \
     # Clean up
     rm -rf /tmp/*
-
-# Install KinD (Kubernetes in Docker) and docker-cli for embedded K8s cluster support
-# Both binaries are built from source in go-builder with Go 1.25.8 to fix CVE-2025-68121
-COPY --from=go-builder /docker-binary /usr/local/bin/docker
-COPY --from=go-builder /kind-binary /usr/local/bin/kind
-RUN chmod +x /usr/local/bin/kind /usr/local/bin/docker
-# TODO: Once KinD releases a version compiled with Go >= 1.25.8, remove the kind-builder stage
-# at the top of this file and restore the pre-built binary download below for faster builds.
-# Track releases at: https://github.com/kubernetes-sigs/kind/releases
-# RUN ARCH=$(uname -m) && \
-#     if [ "$ARCH" = "x86_64" ]; then \
-#         KIND_URL="https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64"; \
-#         KIND_SHA256="eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"; \
-#     elif [ "$ARCH" = "aarch64" ]; then \
-#         KIND_URL="https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-arm64"; \
-#         KIND_SHA256="8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"; \
-#     else \
-#         echo "ERROR: Unsupported architecture: $ARCH. KinD is only available for x86_64 and aarch64."; \
-#         exit 1; \
-#     fi && \
-#     wget -O /usr/local/bin/kind "${KIND_URL}" && \
-#     echo "${KIND_SHA256}  /usr/local/bin/kind" | sha256sum -c - && \
-#     chmod +x /usr/local/bin/kind
 
 RUN apk add --no-cache supervisor && \
     # CVE-2026-24049: wheel path traversal — not needed at runtime, remove entirely

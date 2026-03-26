@@ -78,17 +78,59 @@ if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
     fi
     echo "WARNING: Docker socket mounted - this mode is for development only, not for production use."
 
-    if ! command -v kind >/dev/null 2>&1; then
-        echo "ERROR: KinD binary not found in this image."
-        exit 1
+    # Download KinD and Docker CLI on demand (not baked into the image to avoid
+    # shipping Go stdlib/dependency CVEs in the Docker image scan).
+    # Binaries are persisted to /app/data so they survive container restarts.
+    BIN_DIR="/app/data/.bin"
+    mkdir -p "$BIN_DIR"
+    export PATH="$BIN_DIR:$PATH"
+
+    KIND_VERSION="0.31.0"
+    DOCKER_VERSION="29.3.1"
+
+    if [ ! -x "$BIN_DIR/kind" ]; then
+        echo "Downloading KinD v${KIND_VERSION}..."
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "x86_64" ]; then
+            KIND_ARCH="amd64"
+            KIND_SHA256="eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
+        elif [ "$ARCH" = "aarch64" ]; then
+            KIND_ARCH="arm64"
+            KIND_SHA256="8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"
+        else
+            echo "ERROR: Unsupported architecture: $ARCH"; exit 1
+        fi
+        wget -qO "$BIN_DIR/kind" "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-${KIND_ARCH}"
+        echo "${KIND_SHA256}  $BIN_DIR/kind" | sha256sum -c - || { echo "ERROR: KinD checksum mismatch"; rm -f "$BIN_DIR/kind"; exit 1; }
+        chmod +x "$BIN_DIR/kind"
+        echo "KinD v${KIND_VERSION} installed"
+    fi
+
+    if [ ! -x "$BIN_DIR/docker" ]; then
+        echo "Downloading Docker CLI v${DOCKER_VERSION}..."
+        ARCH=$(uname -m)
+        if [ "$ARCH" = "x86_64" ]; then
+            DOCKER_ARCH="x86_64"
+            DOCKER_SHA256="653965a027971307147c1164d44ca96e61c714e7a924a2a9fcba22ca037728cf"
+        elif [ "$ARCH" = "aarch64" ]; then
+            DOCKER_ARCH="aarch64"
+            DOCKER_SHA256="847584cec43ec05bfb0485824f3f3d458dd57cd287017c672b8a9ccdede34c58"
+        else
+            echo "ERROR: Unsupported architecture: $ARCH"; exit 1
+        fi
+        wget -qO /tmp/docker.tgz "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz"
+        echo "${DOCKER_SHA256}  /tmp/docker.tgz" | sha256sum -c - || { echo "ERROR: Docker checksum mismatch"; rm -f /tmp/docker.tgz; exit 1; }
+        tar -xzf /tmp/docker.tgz -C "$BIN_DIR" --strip-components=1 docker/docker
+        rm -f /tmp/docker.tgz
+        echo "Docker CLI v${DOCKER_VERSION} installed"
     fi
 
     # Quickstart mode always uses embedded KinD cluster
     CLUSTER_NAME="archestra-mcp"
     KUBECONFIG_PATH="/app/data/.kubeconfig"
     # Pin a known-good node image to avoid compatibility issues with newer K8s versions.
-    # Must match a version supported by the KinD binary version compiled in the builder stage.
-    # See: https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0
+    # Must match a version supported by the KinD binary version downloaded above.
+    # See: https://github.com/kubernetes-sigs/kind/releases/tag/v${KIND_VERSION}
     KIND_NODE_IMAGE="kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48"
 
     # Check if cluster already exists
