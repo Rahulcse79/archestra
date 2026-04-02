@@ -288,6 +288,7 @@ Required RBAC permission: `mcpGateway:create`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | `string` | Yes | Name for the new resource. |
+| `slug` | `string` | No | Optional URL-friendly alias for the MCP gateway URL (e.g. `my-gateway`). Must be unique across gateways in the organization. When set, the gateway URL uses the slug instead of the UUID. |
 | `scope` | `"personal" \| "team" \| "org"` | No | Visibility scope. Defaults to personal for agents and org for LLM proxies/MCP gateways unless teams are provided. |
 | `labels` | `object[]` | No | Optional key-value labels for organization and categorization. |
 | `labels[].key` | `string` | Yes |  |
@@ -345,6 +346,7 @@ Required RBAC permission: `mcpGateway:update`
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `id` | `string` | Yes | The ID of the MCP gateway to edit. Use get_mcp_gateway to look it up by name first if needed. |
+| `slug` | `string \| null` | No | Optional URL-friendly alias for the MCP gateway URL. Set to null to remove. Must be unique across gateways in the organization. |
 | `description` | `string \| null` | No | New description for the MCP gateway. |
 | `icon` | `string \| null` | No | New emoji icon for the MCP gateway. |
 | `labels` | `object[]` | No | Replace the MCP gateway's labels with this set. |

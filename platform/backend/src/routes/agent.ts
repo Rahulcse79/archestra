@@ -387,6 +387,20 @@ const agentRoutes: FastifyPluginAsyncZod = async (fastify) => {
         }
       }
 
+      // Validate slug uniqueness if provided
+      if (body.slug) {
+        const slugTaken = await AgentModel.isSlugTaken(
+          organizationId,
+          body.slug,
+        );
+        if (slugTaken) {
+          throw new ApiError(
+            409,
+            `Slug "${body.slug}" is already in use by another gateway in this organization`,
+          );
+        }
+      }
+
       // Omit teams if scope is not 'team' — scope takes precedence
       const createData = {
         ...body,
@@ -549,6 +563,21 @@ const agentRoutes: FastifyPluginAsyncZod = async (fastify) => {
       // Prevent downgrading shared agents to personal
       if (body.scope === "personal" && existingAgent.scope !== "personal") {
         throw new ApiError(400, "Shared agents cannot be made personal");
+      }
+
+      // Validate slug uniqueness if provided
+      if (body.slug !== undefined && body.slug !== null) {
+        const slugTaken = await AgentModel.isSlugTaken(
+          organizationId,
+          body.slug,
+          id,
+        );
+        if (slugTaken) {
+          throw new ApiError(
+            409,
+            `Slug "${body.slug}" is already in use by another gateway in this organization`,
+          );
+        }
       }
 
       // Validate knowledgeBaseIds if provided

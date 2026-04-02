@@ -1117,6 +1117,45 @@ class AgentModel {
     return result;
   }
 
+  /**
+   * Resolve a slug to an agent ID within a given organization.
+   * Returns the agent ID if found, null otherwise.
+   */
+  static async findIdBySlug(slug: string): Promise<string | null> {
+    const [row] = await db
+      .select({ id: schema.agentsTable.id })
+      .from(schema.agentsTable)
+      .where(eq(schema.agentsTable.slug, slug))
+      .limit(1);
+
+    return row?.id ?? null;
+  }
+
+  /**
+   * Check if a slug is already taken by another agent in the same organization.
+   */
+  static async isSlugTaken(
+    organizationId: string,
+    slug: string,
+    excludeAgentId?: string,
+  ): Promise<boolean> {
+    const conditions = [
+      eq(schema.agentsTable.organizationId, organizationId),
+      eq(schema.agentsTable.slug, slug),
+    ];
+    if (excludeAgentId) {
+      conditions.push(ne(schema.agentsTable.id, excludeAgentId));
+    }
+
+    const [row] = await db
+      .select({ id: schema.agentsTable.id })
+      .from(schema.agentsTable)
+      .where(and(...conditions))
+      .limit(1);
+
+    return !!row;
+  }
+
   static async getMCPGatewayOrCreateDefault(
     organizationId?: string,
   ): Promise<Agent> {

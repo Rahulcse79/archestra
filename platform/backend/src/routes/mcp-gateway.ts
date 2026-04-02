@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { TokenAuthContext } from "@/clients/mcp-client";
 import config from "@/config";
-import { McpToolCallModel } from "@/models";
+import { AgentModel, McpToolCallModel } from "@/models";
 import { UuidIdSchema } from "@/types";
 import {
   createAgentServer,
@@ -14,6 +14,23 @@ import {
   extractProfileIdAndTokenFromRequest,
   validateMCPGatewayToken,
 } from "./mcp-gateway.utils";
+
+/**
+ * Resolve a profileId param that may be either a UUID or a slug.
+ * Returns the UUID agent ID, or null if not found.
+ */
+async function resolveProfileId(
+  profileIdOrSlug: string,
+): Promise<string | null> {
+  // If it's a valid UUID, use it directly
+  const uuidResult = UuidIdSchema.safeParse(profileIdOrSlug);
+  if (uuidResult.success) {
+    return uuidResult.data;
+  }
+
+  // Otherwise, treat it as a slug and resolve to an ID
+  return AgentModel.findIdBySlug(profileIdOrSlug);
+}
 
 // =============================================================================
 // MCP Gateway request handling (stateless mode)
@@ -144,7 +161,7 @@ async function handleMcpPostRequest(
 export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
   const { endpoint } = config.mcpGateway;
 
-  // GET endpoint for server discovery with profile ID in URL
+  // GET endpoint for server discovery with profile ID or slug in URL
   fastify.get(
     `${endpoint}/:profileId`,
     {
@@ -152,7 +169,7 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
         operationId: "mcpGatewayGet",
         tags: ["MCP Gateway"],
         params: z.object({
-          profileId: UuidIdSchema,
+          profileId: z.string(),
         }),
         response: {
           200: z.object({
@@ -177,14 +194,17 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
             error: z.string(),
             message: z.string(),
           }),
+          404: z.object({
+            error: z.string(),
+            message: z.string(),
+          }),
         },
       },
     },
     async (request, reply) => {
-      const { profileId, token } =
-        extractProfileIdAndTokenFromRequest(request) ?? {};
+      const extracted = extractProfileIdAndTokenFromRequest(request);
 
-      if (!profileId || !token) {
+      if (!extracted?.profileId || !extracted?.token) {
         setWWWAuthenticateHeader(request, reply);
         reply.status(401);
         return {
@@ -194,7 +214,20 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
         };
       }
 
-      const tokenAuth = await validateMCPGatewayToken(profileId, token);
+      // Resolve slug to UUID if needed
+      const profileId = await resolveProfileId(extracted.profileId);
+      if (!profileId) {
+        reply.status(404);
+        return {
+          error: "Not Found",
+          message: "Gateway not found",
+        };
+      }
+
+      const tokenAuth = await validateMCPGatewayToken(
+        profileId,
+        extracted.token,
+      );
 
       reply.type("application/json");
       return {
@@ -218,7 +251,7 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
     },
   );
 
-  // POST endpoint for JSON-RPC requests with profile ID in URL
+  // POST endpoint for JSON-RPC requests with profile ID or slug in URL
   // New auth: Validates archestra token for the profile
   fastify.post(
     `${endpoint}/:profileId`,
@@ -227,16 +260,15 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
         operationId: "mcpGatewayPost",
         tags: ["MCP Gateway"],
         params: z.object({
-          profileId: UuidIdSchema,
+          profileId: z.string(),
         }),
         body: z.record(z.string(), z.unknown()),
       },
     },
     async (request, reply) => {
-      const { profileId, token } =
-        extractProfileIdAndTokenFromRequest(request) ?? {};
+      const extracted = extractProfileIdAndTokenFromRequest(request);
 
-      if (!profileId || !token) {
+      if (!extracted?.profileId || !extracted?.token) {
         setWWWAuthenticateHeader(request, reply);
         reply.status(401);
         return {
@@ -250,7 +282,24 @@ export const mcpGatewayRoutes: FastifyPluginAsyncZod = async (fastify) => {
         };
       }
 
-      const tokenAuth = await validateMCPGatewayToken(profileId, token);
+      // Resolve slug to UUID if needed
+      const profileId = await resolveProfileId(extracted.profileId);
+      if (!profileId) {
+        reply.status(404);
+        return {
+          jsonrpc: "2.0",
+          error: {
+            code: -32000,
+            message: "Gateway not found",
+          },
+          id: null,
+        };
+      }
+
+      const tokenAuth = await validateMCPGatewayToken(
+        profileId,
+        extracted.token,
+      );
       if (!tokenAuth) {
         setWWWAuthenticateHeader(request, reply);
         reply.status(401);

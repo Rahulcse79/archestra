@@ -10683,6 +10683,7 @@ export type GetAgentsResponses = {
             authorId: string | null;
             scope: 'personal' | 'team' | 'org';
             name: string;
+            slug: string | null;
             isDefault: boolean;
             considerContextUntrusted: boolean;
             agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -10775,6 +10776,7 @@ export type CreateAgentData = {
         organizationId?: string;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug?: string | null;
         isDefault?: boolean;
         considerContextUntrusted?: boolean;
         agentType?: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -10884,6 +10886,7 @@ export type CreateAgentResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11055,6 +11058,7 @@ export type GetAllAgentsResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11209,6 +11213,7 @@ export type GetDefaultMcpGatewayResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11363,6 +11368,7 @@ export type GetDefaultLlmProxyResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11598,6 +11604,7 @@ export type GetAgentResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11681,6 +11688,7 @@ export type UpdateAgentData = {
         organizationId?: string;
         scope?: 'personal' | 'team' | 'org';
         name?: string;
+        slug?: string | null;
         isDefault?: boolean;
         considerContextUntrusted?: boolean;
         agentType?: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';
@@ -11792,6 +11800,7 @@ export type UpdateAgentResponses = {
         authorId: string | null;
         scope: 'personal' | 'team' | 'org';
         name: string;
+        slug: string | null;
         isDefault: boolean;
         considerContextUntrusted: boolean;
         agentType: 'profile' | 'mcp_gateway' | 'llm_proxy' | 'agent';

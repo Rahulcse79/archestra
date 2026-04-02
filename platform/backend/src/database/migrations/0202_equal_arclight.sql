@@ -1,0 +1,2 @@
+ALTER TABLE "agents" ADD COLUMN "slug" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "agents_organization_id_slug_unique_idx" ON "agents" USING btree ("organization_id","slug") WHERE "agents"."slug" IS NOT NULL;

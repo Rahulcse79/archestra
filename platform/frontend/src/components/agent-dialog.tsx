@@ -565,6 +565,7 @@ export function AgentDialog({
 
   // Form state
   const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -643,6 +644,7 @@ export function AgentDialog({
 
       if (agentData) {
         setName(agentData.name);
+        setSlug(agentData.slug || "");
         setIcon(agentData.icon);
         setDescription(agentData.description || "");
         setSystemPrompt(agentData.systemPrompt || "");
@@ -674,6 +676,7 @@ export function AgentDialog({
       } else {
         // Create mode - reset all fields
         setName("");
+        setSlug("");
         setIcon(null);
         setDescription("");
         setSystemPrompt("");
@@ -894,6 +897,7 @@ export function AgentDialog({
           id: agent.id,
           data: {
             name: trimmedName,
+            slug: slug.trim() || null,
             icon: icon || null,
             agentType: agentType,
             ...(normalizedDescription !== undefined && {
@@ -926,6 +930,7 @@ export function AgentDialog({
         // Create new agent
         const created = await createAgent.mutateAsync({
           name: trimmedName,
+          ...(slug.trim() && { slug: slug.trim() }),
           icon: icon || null,
           agentType: agentType,
           ...(normalizedDescription !== undefined && {
@@ -991,6 +996,7 @@ export function AgentDialog({
     }
   }, [
     name,
+    slug,
     icon,
     description,
     systemPrompt,
@@ -1112,6 +1118,33 @@ export function AgentDialog({
                         autoFocus
                       />
                     </div>
+                    {(agentType === "mcp_gateway" ||
+                      agentType === "profile") && (
+                      <div className="space-y-2">
+                        <Label htmlFor="agentSlug">
+                          Slug{" "}
+                          <span className="text-muted-foreground font-normal">
+                            (optional)
+                          </span>
+                        </Label>
+                        <Input
+                          id="agentSlug"
+                          value={slug}
+                          onChange={(e) =>
+                            setSlug(
+                              e.target.value
+                                .toLowerCase()
+                                .replace(/[^a-z0-9-]/g, ""),
+                            )
+                          }
+                          placeholder="my-gateway"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          URL-friendly alias used in the MCP gateway URL instead
+                          of the ID. Must be unique across gateways.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 

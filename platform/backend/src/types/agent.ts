@@ -86,6 +86,22 @@ export const AgentTeamInfoSchema = z.object({
   name: z.string(),
 });
 
+/**
+ * Regex for valid slug: lowercase alphanumeric and hyphens, no leading/trailing hyphens.
+ * Between 1 and 64 characters.
+ */
+const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const MAX_SLUG_LENGTH = 64;
+
+export const AgentSlugSchema = z
+  .string()
+  .min(1, "Slug must be at least 1 character")
+  .max(MAX_SLUG_LENGTH, `Slug must not exceed ${MAX_SLUG_LENGTH} characters`)
+  .regex(
+    SLUG_REGEX,
+    "Slug must contain only lowercase letters, numbers, and hyphens, and cannot start or end with a hyphen",
+  );
+
 // Extended field schemas for drizzle-zod
 // agentType override is needed because the column uses text().$type<AgentType>()
 // which drizzle-zod infers as z.string() instead of the narrower enum schema
@@ -101,6 +117,7 @@ const insertExtendedFields = {
   agentType: AgentTypeSchema.optional(),
   scope: AgentScopeSchema.optional(),
   builtInAgentConfig: BuiltInAgentConfigSchema.nullable().optional(),
+  slug: AgentSlugSchema.nullable().optional(),
 };
 
 /**

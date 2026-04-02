@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AgentScope, AgentType, BuiltInAgentConfig } from "@/types/agent";
@@ -43,6 +44,8 @@ const agentsTable = pgTable(
     }),
     scope: text("scope").$type<AgentScope>().notNull().default("personal"),
     name: text("name").notNull(),
+    /** Optional URL-friendly alias; when present, used in MCP gateway URL instead of the UUID */
+    slug: text("slug"),
     isDefault: boolean("is_default").notNull().default(false),
     considerContextUntrusted: boolean("consider_context_untrusted")
       .notNull()
@@ -112,6 +115,9 @@ const agentsTable = pgTable(
     index("agents_identity_provider_id_idx").on(table.identityProviderId),
     index("agents_author_id_idx").on(table.authorId),
     index("agents_scope_idx").on(table.scope),
+    uniqueIndex("agents_organization_id_slug_unique_idx")
+      .on(table.organizationId, table.slug)
+      .where(sql`${table.slug} IS NOT NULL`),
   ],
 );
 

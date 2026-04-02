@@ -237,7 +237,9 @@ export function McpConnectionInstructions({
     [mcpServers],
   );
 
-  const mcpUrl = `${connectionUrl}/mcp/${selectedProfileId}`;
+  // Use slug in MCP URL when available, otherwise fall back to the UUID
+  const mcpUrlIdentifier = selectedProfile?.slug || selectedProfileId;
+  const mcpUrl = `${connectionUrl}/mcp/${mcpUrlIdentifier}`;
 
   // Default to personal token if available, otherwise org token, then first token
   const orgToken = tokens?.find((t) => t.isOrganizationToken);

@@ -2524,4 +2524,136 @@ describe("AgentModel", () => {
       expect(result.get(agent.id)?.authorId).toBeNull();
     });
   });
+
+  describe("slug", () => {
+    test("can create an agent with a slug", async ({ makeOrganization }) => {
+      const org = await makeOrganization();
+      const agent = await AgentModel.create({
+        name: "Slugged Gateway",
+        slug: "my-gateway",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      expect(agent.slug).toBe("my-gateway");
+    });
+
+    test("findIdBySlug resolves slug to agent ID", async ({
+      makeOrganization,
+    }) => {
+      const org = await makeOrganization();
+      const agent = await AgentModel.create({
+        name: "Slugged Gateway",
+        slug: "find-me",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const foundId = await AgentModel.findIdBySlug("find-me");
+      expect(foundId).toBe(agent.id);
+    });
+
+    test("findIdBySlug returns null for unknown slug", async () => {
+      const foundId = await AgentModel.findIdBySlug("nonexistent-slug");
+      expect(foundId).toBeNull();
+    });
+
+    test("isSlugTaken returns true when slug exists in org", async ({
+      makeOrganization,
+    }) => {
+      const org = await makeOrganization();
+      await AgentModel.create({
+        name: "Existing Gateway",
+        slug: "taken-slug",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const taken = await AgentModel.isSlugTaken(org.id, "taken-slug");
+      expect(taken).toBe(true);
+    });
+
+    test("isSlugTaken returns false when slug does not exist", async ({
+      makeOrganization,
+    }) => {
+      const org = await makeOrganization();
+      const taken = await AgentModel.isSlugTaken(org.id, "available-slug");
+      expect(taken).toBe(false);
+    });
+
+    test("isSlugTaken excludes the specified agent", async ({
+      makeOrganization,
+    }) => {
+      const org = await makeOrganization();
+      const agent = await AgentModel.create({
+        name: "My Gateway",
+        slug: "my-slug",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const taken = await AgentModel.isSlugTaken(org.id, "my-slug", agent.id);
+      expect(taken).toBe(false);
+    });
+
+    test("slug can be updated", async ({ makeOrganization }) => {
+      const org = await makeOrganization();
+      const agent = await AgentModel.create({
+        name: "Gateway",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const updated = await AgentModel.update(agent.id, {
+        slug: "new-slug",
+      });
+      expect(updated?.slug).toBe("new-slug");
+    });
+
+    test("slug can be cleared by setting to null", async ({
+      makeOrganization,
+    }) => {
+      const org = await makeOrganization();
+      const agent = await AgentModel.create({
+        name: "Gateway",
+        slug: "old-slug",
+        organizationId: org.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const updated = await AgentModel.update(agent.id, { slug: null });
+      expect(updated?.slug).toBeNull();
+    });
+
+    test("same slug can be used in different organizations", async ({
+      makeOrganization,
+    }) => {
+      const org1 = await makeOrganization();
+      const org2 = await makeOrganization();
+
+      await AgentModel.create({
+        name: "Gateway 1",
+        slug: "shared-slug",
+        organizationId: org1.id,
+        teams: [],
+        scope: "org",
+      });
+
+      const agent2 = await AgentModel.create({
+        name: "Gateway 2",
+        slug: "shared-slug",
+        organizationId: org2.id,
+        teams: [],
+        scope: "org",
+      });
+
+      expect(agent2.slug).toBe("shared-slug");
+    });
+  });
 });

@@ -174,6 +174,7 @@ export const KnowledgeSourceOutputSchema = z.object({
 export async function handleCreateResource<
   TArgs extends {
     name: string;
+    slug?: string | null;
     scope?: AgentScope;
     labels?: Array<{ key: string; value: string }>;
     teams?: string[];
@@ -262,6 +263,20 @@ export async function handleCreateResource<
     if (targetAgentType === "agent" || targetAgentType === "mcp_gateway") {
       if (targetAgentType === "agent" && args.systemPrompt) {
         createParams.systemPrompt = args.systemPrompt;
+      }
+      if (args.slug) {
+        if (context.organizationId) {
+          const slugTaken = await AgentModel.isSlugTaken(
+            context.organizationId,
+            args.slug,
+          );
+          if (slugTaken) {
+            return errorResult(
+              `Slug "${args.slug}" is already in use by another gateway in this organization.`,
+            );
+          }
+        }
+        createParams.slug = args.slug;
       }
       if (args.description) createParams.description = args.description;
       if (args.icon) createParams.icon = args.icon;
@@ -414,6 +429,7 @@ export async function handleGetResource<
 export async function handleEditResource<
   TArgs extends {
     id: string;
+    slug?: string | null;
     name?: string;
     description?: string | null;
     icon?: string | null;
@@ -475,6 +491,21 @@ export async function handleEditResource<
 
     const updateData: Record<string, unknown> = {};
     if (args.name !== undefined) updateData.name = args.name;
+    if (args.slug !== undefined) {
+      if (args.slug !== null) {
+        const slugTaken = await AgentModel.isSlugTaken(
+          context.organizationId,
+          args.slug,
+          args.id,
+        );
+        if (slugTaken) {
+          return errorResult(
+            `Slug "${args.slug}" is already in use by another gateway in this organization.`,
+          );
+        }
+      }
+      updateData.slug = args.slug;
+    }
     if (args.description !== undefined)
       updateData.description = args.description;
     if (args.icon !== undefined) updateData.icon = args.icon;

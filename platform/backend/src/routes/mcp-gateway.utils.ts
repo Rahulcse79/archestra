@@ -56,13 +56,12 @@ import {
   findExternalIdentityProviderById,
 } from "@/services/identity-providers/oidc";
 import { jwksValidator } from "@/services/jwks-validator";
-import {
-  type AgentAccessContext,
-  type AgentType,
-  type CommonToolCall,
-  type SelectTeamToken,
-  type SelectUserToken,
-  UuidIdSchema,
+import type {
+  AgentAccessContext,
+  AgentType,
+  CommonToolCall,
+  SelectTeamToken,
+  SelectUserToken,
 } from "@/types";
 import { deriveAuthMethod } from "@/utils/auth-method";
 import { estimateToolResultContentLength } from "@/utils/tool-result-preview";
@@ -536,8 +535,9 @@ export function extractBearerToken(request: FastifyRequest): string | null {
 }
 
 /**
- * Extract profile ID from URL path and token from Authorization header
- * URL format: /v1/mcp/:profileId
+ * Extract profile ID or slug from URL path and token from Authorization header.
+ * URL format: /v1/mcp/:profileIdOrSlug
+ * Returns the raw identifier (UUID or slug) — caller must resolve slugs to IDs.
  */
 export function extractProfileIdAndTokenFromRequest(
   request: FastifyRequest,
@@ -547,18 +547,13 @@ export function extractProfileIdAndTokenFromRequest(
     return null;
   }
 
-  // Extract profile ID from URL path (last segment)
-  const profileId = request.url.split("/").at(-1)?.split("?")[0];
-  if (!profileId) {
+  // Extract profile ID or slug from URL path (last segment)
+  const profileIdOrSlug = request.url.split("/").at(-1)?.split("?")[0];
+  if (!profileIdOrSlug) {
     return null;
   }
 
-  try {
-    const parsedProfileId = UuidIdSchema.parse(profileId);
-    return parsedProfileId ? { profileId: parsedProfileId, token } : null;
-  } catch {
-    return null;
-  }
+  return { profileId: profileIdOrSlug, token };
 }
 
 /**

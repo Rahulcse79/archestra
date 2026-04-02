@@ -4,7 +4,12 @@ import {
   TOOL_GET_MCP_GATEWAY_SHORT_NAME,
 } from "@shared";
 import { z } from "zod";
-import { AgentScopeSchema, UpdateAgentSchemaBase, UuidIdSchema } from "@/types";
+import {
+  AgentScopeSchema,
+  AgentSlugSchema,
+  UpdateAgentSchemaBase,
+  UuidIdSchema,
+} from "@/types";
 import {
   AgentDetailOutputSchema,
   ConnectorIdsToolInputSchema,
@@ -19,6 +24,9 @@ import {
 import { defineArchestraTool, defineArchestraTools } from "./helpers";
 
 const CreateMcpGatewayToolArgsSchema = CreateBaseToolArgsSchema.extend({
+  slug: AgentSlugSchema.optional().describe(
+    "Optional URL-friendly alias for the MCP gateway URL (e.g. 'my-gateway'). Must be unique across gateways in the organization.",
+  ),
   knowledgeBaseIds: KnowledgeBaseIdsToolInputSchema.optional(),
   connectorIds: ConnectorIdsToolInputSchema.optional(),
 }).strict();
@@ -39,6 +47,11 @@ const EditMcpGatewayToolArgsSchema = z
     id: UuidIdSchema.describe(
       "The ID of the MCP gateway to edit. Use get_mcp_gateway to look it up by name first if needed.",
     ),
+    slug: AgentSlugSchema.nullable()
+      .optional()
+      .describe(
+        "Optional URL-friendly alias for the MCP gateway URL. Set to null to remove. Must be unique across gateways in the organization.",
+      ),
     description: UpdateAgentSchemaBase.shape.description
       .optional()
       .describe("New description for the MCP gateway."),
