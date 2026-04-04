@@ -3,7 +3,7 @@ title: Knowledge Connectors
 category: Knowledge
 order: 2
 description: Supported connector types, configuration, and management
-lastUpdated: 2026-03-12
+lastUpdated: 2026-04-04
 ---
 
 <!--
@@ -107,17 +107,19 @@ Authentication uses a [Notion integration token](https://www.notion.so/my-integr
 
 ## SharePoint
 
-Ingests documents and site pages from SharePoint Online via the Microsoft Graph API. Text content is extracted from supported file types (.txt, .md, .csv, .json, .xml, .html, .yaml). Site pages are synced with content extracted from web parts.
+Ingests documents and site pages from SharePoint Online via the Microsoft Graph API. Text is extracted from `.txt`, `.md`, `.csv`, `.json`, `.xml`, `.html`, `.htm`, `.yaml`, `.log` files, as well as `.docx`, `.pdf`, and `.pptx` documents. Site pages are synced with content extracted from web parts. When a multimodal embedding model is configured (e.g., `gemini-embedding-2-preview`), image files (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`) up to 4 MB are also ingested and embedded directly.
 
 | Field         | Description                                                                                         |
 | ------------- | --------------------------------------------------------------------------------------------------- |
 | Tenant ID     | Your Azure AD (Entra ID) tenant ID or domain (e.g., `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)         |
 | Site URL      | Your SharePoint site URL (e.g., `https://your-tenant.sharepoint.com/sites/your-site`)               |
+| Client ID     | Azure AD app registration Client ID                                                                 |
+| Client Secret | Azure AD app registration Client Secret                                                             |
 | Drive IDs     | Comma-separated document library IDs to sync (optional -- leave blank to sync all site libraries)   |
 | Folder Path   | Restrict sync to a specific folder path within each drive (optional)                                |
 | Include Pages | Toggle to sync site pages and their web part content (default: on)                                  |
 
-Authentication uses Azure AD app registration with client credentials (OAuth2). Provide the **Client ID** in the Email field and the **Client Secret** in the API Token field. The app registration requires `Sites.Read.All` permission on Microsoft Graph. Incremental sync uses the `lastModifiedDateTime` field to fetch only items modified since the last run.
+Authentication uses an Azure AD app registration with client credentials (OAuth2). The app registration requires the `Sites.Read.All` permission on Microsoft Graph. Incremental sync uses the `lastModifiedDateTime` field to fetch only items modified since the last run.
 
 ## Managing Connectors
 

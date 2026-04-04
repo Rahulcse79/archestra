@@ -558,6 +558,13 @@ export function CreateConnectorDialog({
                           notion.so/my-integrations.
                         </p>
                       )}
+                      {connectorType === "sharepoint" && (
+                        <p className="text-[0.8rem] text-muted-foreground">
+                          The Azure AD app registration requires the{" "}
+                          <code>Sites.Read.All</code> permission on Microsoft
+                          Graph.
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

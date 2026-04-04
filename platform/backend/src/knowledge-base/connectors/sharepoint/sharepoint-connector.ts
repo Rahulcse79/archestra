@@ -1,3 +1,6 @@
+import { ClientSecretCredential } from "@azure/identity";
+import { Client, ResponseType } from "@microsoft/microsoft-graph-client";
+import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
 import JSZip from "jszip";
 import mammoth from "mammoth";
 import type {
@@ -17,6 +20,7 @@ import {
 const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 const DEFAULT_BATCH_SIZE = 50;
 const MAX_CONTENT_LENGTH = 500_000; // 500 KB text limit per document
+const MAX_IMAGE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB image size limit
 const INCREMENTAL_SAFETY_BUFFER_MS = 5 * 60 * 1000;
 
 // File extensions whose text content we can extract via Graph download
@@ -35,6 +39,24 @@ const SUPPORTED_TEXT_EXTENSIONS = new Set([
 
 // Binary file extensions we can extract text from using libraries
 const SUPPORTED_BINARY_EXTENSIONS = new Set([".docx", ".pdf", ".pptx"]);
+
+// Image file extensions supported for multimodal embedding
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+]);
+
+// MIME type mapping for image extensions
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
 
 export class SharePointConnector extends BaseConnector {
   type = "sharepoint" as const;
@@ -61,8 +83,8 @@ export class SharePointConnector extends BaseConnector {
         return { success: false, error: "Invalid configuration" };
       }
 
-      const token = await this.getAccessToken(params.credentials, config);
-      const siteId = await this.resolveSiteId(token, config.siteUrl);
+      const client = this.getGraphClient(params.credentials, config);
+      const siteId = await this.resolveSiteId(client, config.siteUrl);
 
       if (!siteId) {
         return {
@@ -87,6 +109,7 @@ export class SharePointConnector extends BaseConnector {
     checkpoint: Record<string, unknown> | null;
     startTime?: Date;
     endTime?: Date;
+    embeddingInputModalities?: string[];
   }): AsyncGenerator<ConnectorSyncBatch> {
     const parsed = parseSharePointConfig(params.config);
     if (!parsed) {
@@ -102,13 +125,12 @@ export class SharePointConnector extends BaseConnector {
     const safetyBufferedSyncFrom = syncFrom
       ? subtractSafetyBuffer(syncFrom)
       : undefined;
+    const supportsImages =
+      params.embeddingInputModalities?.includes("image") ?? false;
 
-    // Helper to get a fresh token (Azure AD tokens expire after ~60 min).
-    // Re-acquiring before each sync phase prevents failures during long syncs.
-    const freshToken = () => this.getAccessToken(params.credentials, parsed);
-
-    const token = await freshToken();
-    const siteId = await this.resolveSiteId(token, parsed.siteUrl);
+    // Single client instance — SDK handles token acquisition and refresh automatically.
+    const client = this.getGraphClient(params.credentials, parsed);
+    const siteId = await this.resolveSiteId(client, parsed.siteUrl);
 
     if (!siteId) {
       throw new Error(
@@ -123,24 +145,26 @@ export class SharePointConnector extends BaseConnector {
         folderPath: parsed.folderPath,
         includePages: parsed.includePages,
         syncFrom,
+        supportsImages,
       },
       "Starting SharePoint sync",
     );
 
     // Sync drive items (documents/files)
     yield* this.syncDriveItems({
-      token: await freshToken(),
+      client,
       siteId,
       config: parsed,
       checkpoint,
       syncFrom: safetyBufferedSyncFrom,
       batchSize,
+      supportsImages,
     });
 
     // Sync site pages if enabled
     if (parsed.includePages !== false) {
       yield* this.syncSitePages({
-        token: await freshToken(),
+        client,
         siteId,
         checkpoint,
         syncFrom: safetyBufferedSyncFrom,
@@ -151,156 +175,152 @@ export class SharePointConnector extends BaseConnector {
 
   // ===== Private methods =====
 
-  private async getAccessToken(
+  protected getGraphClient(
     credentials: ConnectorCredentials,
     config: SharePointConfig,
-  ): Promise<string> {
-    const tenantId = config.tenantId;
+  ): Client {
     const clientId = credentials.email;
-    const clientSecret = credentials.apiToken;
 
     if (!clientId) {
-      throw new Error("Client ID is required (provide in Email field)");
+      throw new Error("Client ID is required");
     }
 
-    const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+    const credential = new ClientSecretCredential(
+      config.tenantId,
+      clientId,
+      credentials.apiToken,
+    );
 
-    const body = new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope: "https://graph.microsoft.com/.default",
-      grant_type: "client_credentials",
+    const authProvider = new TokenCredentialAuthenticationProvider(credential, {
+      scopes: ["https://graph.microsoft.com/.default"],
     });
 
-    const response = await this.fetchWithRetry(tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(
-        `OAuth token request failed with HTTP ${response.status}: ${text.slice(0, 200)}`,
-      );
-    }
-
-    const result = (await response.json()) as { access_token: string };
-    return result.access_token;
+    return Client.initWithMiddleware({ authProvider });
   }
 
   private async resolveSiteId(
-    token: string,
+    client: Client,
     siteUrl: string,
   ): Promise<string | null> {
     const url = new URL(siteUrl);
     const hostname = url.hostname;
     const sitePath = url.pathname.replace(/^\//, "").replace(/\/$/, "");
 
-    const graphUrl = sitePath
-      ? `${GRAPH_API_BASE}/sites/${hostname}:/${sitePath}`
-      : `${GRAPH_API_BASE}/sites/${hostname}`;
+    const apiPath = sitePath
+      ? `/sites/${hostname}:/${sitePath}`
+      : `/sites/${hostname}`;
 
-    const response = await this.fetchWithRetry(graphUrl, {
-      headers: buildGraphHeaders(token),
-    });
-
-    if (!response.ok) return null;
-
-    const site = (await response.json()) as { id: string };
-    return site.id;
+    try {
+      const site = (await client.api(apiPath).get()) as { id: string };
+      return site.id ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private async *syncDriveItems(params: {
-    token: string;
+    client: Client;
     siteId: string;
     config: SharePointConfig;
     checkpoint: SharePointCheckpoint;
     syncFrom: string | undefined;
     batchSize: number;
+    supportsImages: boolean;
   }): AsyncGenerator<ConnectorSyncBatch> {
-    const { token, siteId, config, checkpoint, syncFrom, batchSize } = params;
+    const {
+      client,
+      siteId,
+      config,
+      checkpoint,
+      syncFrom,
+      batchSize,
+      supportsImages,
+    } = params;
 
     const driveIds =
       config.driveIds && config.driveIds.length > 0
         ? config.driveIds
-        : await this.listDriveIds(token, siteId);
+        : await this.listDriveIds(client, siteId);
 
     for (let i = 0; i < driveIds.length; i++) {
       const driveId = driveIds[i];
       const isLastDrive = i === driveIds.length - 1;
 
       yield* this.syncSingleDrive({
-        token,
+        client,
         driveId,
         folderPath: config.folderPath,
         checkpoint,
         syncFrom,
         batchSize,
         hasMoreDrives: !isLastDrive,
+        supportsImages,
       });
     }
   }
 
-  private async listDriveIds(token: string, siteId: string): Promise<string[]> {
-    const response = await this.fetchWithRetry(
-      `${GRAPH_API_BASE}/sites/${siteId}/drives?$select=id`,
-      { headers: buildGraphHeaders(token) },
-    );
+  private async listDriveIds(
+    client: Client,
+    siteId: string,
+  ): Promise<string[]> {
+    let result: { value: Array<{ id: string }> };
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Failed to list drives: HTTP ${response.status}: ${body.slice(0, 200)}`,
-      );
+    try {
+      result = await client
+        .api(`${GRAPH_API_BASE}/sites/${siteId}/drives?$select=id`)
+        .get();
+    } catch (error) {
+      throw new Error(`Failed to list drives: ${extractErrorMessage(error)}`);
     }
 
-    const result = (await response.json()) as {
-      value: Array<{ id: string }>;
-    };
     return result.value.map((d) => d.id);
   }
 
   private async *syncSingleDrive(params: {
-    token: string;
+    client: Client;
     driveId: string;
     folderPath: string | undefined;
     checkpoint: SharePointCheckpoint;
     syncFrom: string | undefined;
     batchSize: number;
     hasMoreDrives: boolean;
+    supportsImages: boolean;
   }): AsyncGenerator<ConnectorSyncBatch> {
     const {
-      token,
+      client,
       driveId,
       folderPath,
       checkpoint,
       syncFrom,
       batchSize,
       hasMoreDrives,
+      supportsImages,
     } = params;
 
-    let url = buildDriveItemsUrl(driveId, folderPath, syncFrom, batchSize);
+    let url = buildDriveItemsUrl(driveId, folderPath, batchSize);
     let hasMore = true;
     let batchIndex = 0;
 
     while (hasMore) {
       await this.rateLimit();
 
-      const response = await this.fetchWithRetry(url, {
-        headers: buildGraphHeaders(token),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
+      let result: GraphListResponse<DriveItem>;
+      try {
+        result = await client.api(url).get();
+      } catch (error) {
         throw new Error(
-          `Drive items query failed with HTTP ${response.status}: ${body.slice(0, 200)}`,
+          `Drive items query failed: ${extractErrorMessage(error)}`,
         );
       }
 
-      const result = (await response.json()) as GraphListResponse<DriveItem>;
       const items = result.value.filter(
-        (item) => item.file && !item.folder && isSupportedFile(item.name),
+        (item) =>
+          item.file &&
+          !item.folder &&
+          isSupportedFile(item.name, supportsImages) &&
+          // Client-side incremental filter: Graph API does not support
+          // $filter on lastModifiedDateTime for drive item children.
+          (!syncFrom || item.lastModifiedDateTime >= syncFrom),
       );
 
       const documents: ConnectorDocument[] = [];
@@ -308,16 +328,21 @@ export class SharePointConnector extends BaseConnector {
       for (const item of items) {
         const doc = await this.safeItemFetch({
           fetch: async () => {
-            const content = await this.downloadFileContent(
-              token,
+            const result = await this.downloadFileData(
+              client,
               driveId,
               item.id,
               item.name,
             );
-            // Skip files with no extractable content to avoid indexing
+            // Skip files with no extractable content or media to avoid indexing
             // title-only documents that provide no search value.
-            if (!content.trim()) return null;
-            return driveItemToDocument(item, driveId, content);
+            if (!result.text.trim() && !result.mediaContent) return null;
+            return driveItemToDocument(
+              item,
+              driveId,
+              result.text,
+              result.mediaContent,
+            );
           },
           fallback: null,
           itemId: item.id,
@@ -360,87 +385,107 @@ export class SharePointConnector extends BaseConnector {
     }
   }
 
-  private async downloadFileContent(
-    token: string,
+  private async downloadFileData(
+    client: Client,
     driveId: string,
     itemId: string,
     fileName: string,
-  ): Promise<string> {
+  ): Promise<{
+    text: string;
+    mediaContent?: { mimeType: string; data: string };
+  }> {
     const ext = getFileExtension(fileName);
-    const contentUrl = `${GRAPH_API_BASE}/drives/${driveId}/items/${itemId}/content`;
+    const contentPath = `/drives/${driveId}/items/${itemId}/content`;
 
     // Plain text files: download and read as text
     if (SUPPORTED_TEXT_EXTENSIONS.has(ext)) {
-      const response = await this.fetchWithRetry(contentUrl, {
-        headers: buildGraphHeaders(token),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          `Failed to download ${fileName}: HTTP ${response.status}: ${body.slice(0, 200)}`,
-        );
-      }
-
-      const text = await response.text();
-      return text.slice(0, MAX_CONTENT_LENGTH);
+      const arrayBuffer = (await client
+        .api(contentPath)
+        .responseType(ResponseType.ARRAYBUFFER)
+        .get()) as ArrayBuffer;
+      return {
+        text: Buffer.from(arrayBuffer)
+          .toString("utf-8")
+          .slice(0, MAX_CONTENT_LENGTH),
+      };
     }
 
     // Binary files (.docx, .pdf, .pptx): download as buffer and extract text
     if (SUPPORTED_BINARY_EXTENSIONS.has(ext)) {
-      const response = await this.fetchWithRetry(contentUrl, {
-        headers: buildGraphHeaders(token),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          `Failed to download ${fileName}: HTTP ${response.status}: ${body.slice(0, 200)}`,
-        );
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      const text = await extractTextFromBinary(buffer, ext);
-      return text.slice(0, MAX_CONTENT_LENGTH);
+      const arrayBuffer = (await client
+        .api(contentPath)
+        .responseType(ResponseType.ARRAYBUFFER)
+        .get()) as ArrayBuffer;
+      const text = await extractTextFromBinary(Buffer.from(arrayBuffer), ext);
+      return { text: text.slice(0, MAX_CONTENT_LENGTH) };
     }
 
-    return "";
+    // Image files: download as base64 for multimodal embedding
+    if (SUPPORTED_IMAGE_EXTENSIONS.has(ext)) {
+      const arrayBuffer = (await client
+        .api(contentPath)
+        .responseType(ResponseType.ARRAYBUFFER)
+        .get()) as ArrayBuffer;
+      if (arrayBuffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+        this.log.debug(
+          { fileName, sizeBytes: arrayBuffer.byteLength },
+          "SharePoint: skipping oversized image",
+        );
+        return { text: "" };
+      }
+      const mimeType = IMAGE_MIME_TYPES[ext] ?? "application/octet-stream";
+      const data = Buffer.from(arrayBuffer).toString("base64");
+      return { text: "", mediaContent: { mimeType, data } };
+    }
+
+    this.log.debug(
+      { fileName, ext },
+      "SharePoint: skipping unsupported file type",
+    );
+    return { text: "" };
   }
 
   private async *syncSitePages(params: {
-    token: string;
+    client: Client;
     siteId: string;
     checkpoint: SharePointCheckpoint;
     syncFrom: string | undefined;
     batchSize: number;
   }): AsyncGenerator<ConnectorSyncBatch> {
-    const { token, siteId, checkpoint, syncFrom, batchSize } = params;
+    const { client, siteId, checkpoint, syncFrom, batchSize } = params;
 
-    let url = buildSitePagesUrl(siteId, syncFrom, batchSize);
+    let url = buildSitePagesUrl(siteId, batchSize);
     let hasMore = true;
     let batchIndex = 0;
 
     while (hasMore) {
       await this.rateLimit();
 
-      const response = await this.fetchWithRetry(url, {
-        headers: buildGraphHeaders(token),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
+      let result: GraphListResponse<SitePage>;
+      try {
+        result = await client.api(url).get();
+      } catch (error) {
         throw new Error(
-          `Site pages query failed with HTTP ${response.status}: ${body.slice(0, 200)}`,
+          `Site pages query failed: ${extractErrorMessage(error)}`,
         );
       }
 
-      const result = (await response.json()) as GraphListResponse<SitePage>;
       const documents: ConnectorDocument[] = [];
 
-      for (const page of result.value) {
+      // Client-side incremental filter for pages (same reason as drive items:
+      // $filter on lastModifiedDateTime is not reliably supported by the pages API).
+      const pages = syncFrom
+        ? result.value.filter((p) => p.lastModifiedDateTime >= syncFrom)
+        : result.value;
+
+      for (const page of pages) {
         const doc = await this.safeItemFetch({
           fetch: async () => {
-            const content = await this.fetchPageContent(token, siteId, page.id);
+            const content = await this.fetchPageContent(
+              client,
+              siteId,
+              page.id,
+            );
             // Skip pages with no extractable content to avoid indexing
             // title-only documents that provide no search value.
             if (!content.trim()) return null;
@@ -485,29 +530,27 @@ export class SharePointConnector extends BaseConnector {
   }
 
   private async fetchPageContent(
-    token: string,
+    client: Client,
     siteId: string,
     pageId: string,
   ): Promise<string> {
-    const response = await this.fetchWithRetry(
-      `${GRAPH_API_BASE}/sites/${siteId}/pages/${pageId}/microsoft.graph.sitePage/webParts`,
-      { headers: buildGraphHeaders(token) },
-    );
+    const apiPath = `${GRAPH_API_BASE}/sites/${siteId}/pages/${pageId}/microsoft.graph.sitePage/webParts`;
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Failed to fetch page content for ${pageId}: HTTP ${response.status}: ${body.slice(0, 200)}`,
-      );
-    }
-
-    const result = (await response.json()) as {
+    let result: {
       value: Array<{
         "@odata.type"?: string;
         innerHtml?: string;
         data?: { properties?: Record<string, unknown> };
       }>;
     };
+
+    try {
+      result = await client.api(apiPath).get();
+    } catch (error) {
+      throw new Error(
+        `Failed to fetch page content for ${pageId}: ${extractErrorMessage(error)}`,
+      );
+    }
 
     const parts: string[] = [];
     for (const webPart of result.value) {
@@ -555,13 +598,6 @@ function subtractSafetyBuffer(isoDate: string): string {
   ).toISOString();
 }
 
-function buildGraphHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-}
-
 function parseSharePointConfig(
   config: Record<string, unknown>,
 ): SharePointConfig | null {
@@ -575,7 +611,6 @@ function parseSharePointConfig(
 function buildDriveItemsUrl(
   driveId: string,
   folderPath: string | undefined,
-  syncFrom: string | undefined,
   batchSize: number,
 ): string {
   const basePath = folderPath
@@ -589,18 +624,10 @@ function buildDriveItemsUrl(
     $top: String(batchSize),
   });
 
-  if (syncFrom) {
-    params.set("$filter", `lastModifiedDateTime ge ${syncFrom}`);
-  }
-
   return `${basePath}?${params.toString()}`;
 }
 
-function buildSitePagesUrl(
-  siteId: string,
-  syncFrom: string | undefined,
-  batchSize: number,
-): string {
+function buildSitePagesUrl(siteId: string, batchSize: number): string {
   const params = new URLSearchParams({
     $select:
       "id,name,title,webUrl,lastModifiedDateTime,createdDateTime,description",
@@ -608,17 +635,15 @@ function buildSitePagesUrl(
     $top: String(batchSize),
   });
 
-  if (syncFrom) {
-    params.set("$filter", `lastModifiedDateTime ge ${syncFrom}`);
-  }
-
   return `${GRAPH_API_BASE}/sites/${siteId}/pages?${params.toString()}`;
 }
 
-function isSupportedFile(name: string): boolean {
+function isSupportedFile(name: string, supportsImages = false): boolean {
   const ext = getFileExtension(name);
   return (
-    SUPPORTED_TEXT_EXTENSIONS.has(ext) || SUPPORTED_BINARY_EXTENSIONS.has(ext)
+    SUPPORTED_TEXT_EXTENSIONS.has(ext) ||
+    SUPPORTED_BINARY_EXTENSIONS.has(ext) ||
+    (supportsImages && SUPPORTED_IMAGE_EXTENSIONS.has(ext))
   );
 }
 
@@ -698,6 +723,7 @@ function driveItemToDocument(
   item: DriveItem,
   driveId: string,
   content: string,
+  mediaContent?: { mimeType: string; data: string },
 ): ConnectorDocument {
   const title = item.name;
   const fullContent = content ? `# ${title}\n\n${content}` : `# ${title}`;
@@ -705,7 +731,9 @@ function driveItemToDocument(
   return {
     id: item.id,
     title,
-    content: fullContent,
+    // For media-only documents, store the title as the text content so
+    // the document record is human-readable in the UI.
+    content: mediaContent && !content.trim() ? `# ${title}` : fullContent,
     sourceUrl: item.webUrl,
     metadata: {
       driveId,
@@ -718,6 +746,7 @@ function driveItemToDocument(
       parentPath: item.parentReference?.path,
     },
     updatedAt: new Date(item.lastModifiedDateTime),
+    mediaContent,
   };
 }
 

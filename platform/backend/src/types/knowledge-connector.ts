@@ -232,6 +232,17 @@ export interface ConnectorDocument {
     groups?: string[];
     isPublic?: boolean;
   };
+  /**
+   * Optional inline media (image) data. When present, the pipeline will embed
+   * this as a multimodal chunk in addition to the text content.
+   * Only indexed when the configured embedding model supports the given modality.
+   */
+  mediaContent?: {
+    /** IANA MIME type, e.g. "image/jpeg" */
+    mimeType: string;
+    /** Base64-encoded binary data */
+    data: string;
+  };
 }
 
 export interface ConnectorItemFailure {
@@ -283,5 +294,11 @@ export interface Connector {
     checkpoint: Record<string, unknown> | null;
     startTime?: Date;
     endTime?: Date;
+    /**
+     * Input modalities supported by the configured embedding model.
+     * Connectors can use this to conditionally ingest non-text content
+     * (e.g. images) only when the embedding model can handle it.
+     */
+    embeddingInputModalities?: string[];
   }): AsyncGenerator<ConnectorSyncBatch>;
 }

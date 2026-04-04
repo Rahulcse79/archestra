@@ -1,6 +1,6 @@
 import { isNomicModel } from "@shared";
 import OpenAI from "openai";
-import type { EmbeddingApiResponse } from "./types";
+import type { EmbeddingApiResponse, EmbeddingInput } from "./types";
 
 export class OpenAIEmbeddingError extends Error {
   constructor(
@@ -13,17 +13,24 @@ export class OpenAIEmbeddingError extends Error {
 }
 
 /**
- * Embed multiple texts using the OpenAI-compatible `/v1/embeddings` endpoint.
+ * Embed multiple inputs using the OpenAI-compatible `/v1/embeddings` endpoint.
  * Works with OpenAI, Ollama, and any provider that exposes the OpenAI embeddings API.
+ *
+ * OpenAI-compatible providers support text only. Non-text inputs fall back to
+ * a `"[image]"` placeholder so index alignment is preserved.
  */
 export async function callOpenAIEmbedding(params: {
-  texts: string[];
+  inputs: EmbeddingInput[];
   model: string;
   apiKey: string;
   baseUrl?: string | null;
   dimensions?: number;
 }): Promise<EmbeddingApiResponse> {
-  const { texts, model, apiKey, baseUrl, dimensions } = params;
+  const { inputs, model, apiKey, baseUrl, dimensions } = params;
+  // OpenAI-compatible APIs are text-only: map image inputs to a placeholder.
+  const texts = inputs.map((input) =>
+    typeof input === "string" ? input : "[image]",
+  );
 
   const client = new OpenAI({
     apiKey,

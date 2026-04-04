@@ -4,27 +4,8 @@ import { SharePointConnector } from "./sharepoint-connector";
 
 const credentials = { email: "test-client-id", apiToken: "test-client-secret" };
 
-function makeTokenResponse() {
-  return {
-    ok: true,
-    json: async () => ({ access_token: "test-access-token" }),
-  } as unknown as Response;
-}
-
-function makeSiteResponse(siteId = "site-123") {
-  return {
-    ok: true,
-    json: async () => ({ id: siteId }),
-  } as unknown as Response;
-}
-
-function makeDriveListResponse(driveIds: string[] = ["drive-1"]) {
-  return {
-    ok: true,
-    json: async () => ({
-      value: driveIds.map((id) => ({ id })),
-    }),
-  } as unknown as Response;
+function makeFileBuffer(content: string): ArrayBuffer {
+  return Buffer.from(content).buffer;
 }
 
 function makeDriveItem(
@@ -44,19 +25,6 @@ function makeDriveItem(
   };
 }
 
-function makeDriveItemsResponse(
-  items: ReturnType<typeof makeDriveItem>[],
-  opts?: { nextLink?: string },
-) {
-  return {
-    ok: true,
-    json: async () => ({
-      value: items,
-      "@odata.nextLink": opts?.nextLink ?? undefined,
-    }),
-  } as unknown as Response;
-}
-
 function makeSitePage(
   id: string,
   title: string,
@@ -73,40 +41,26 @@ function makeSitePage(
   };
 }
 
-function makeSitePagesResponse(
-  pages: ReturnType<typeof makeSitePage>[],
-  opts?: { nextLink?: string },
-) {
-  return {
-    ok: true,
-    json: async () => ({
-      value: pages,
-      "@odata.nextLink": opts?.nextLink ?? undefined,
-    }),
-  } as unknown as Response;
-}
+/**
+ * Set up a mock Graph client on the connector.
+ * Returns the mockGet spy — used for all API calls including file downloads.
+ * File downloads use .responseType(...).get() — the mock chains back to mockGet.
+ */
+function setupMockClient(connector: SharePointConnector) {
+  const mockGet = vi.fn();
+  const mockApiObj = {
+    get: mockGet,
+    responseType: vi.fn().mockReturnValue({ get: mockGet }),
+  };
+  const mockApi = vi.fn().mockReturnValue(mockApiObj);
+  const mockClient = { api: mockApi };
 
-function makeFileContentResponse(text: string) {
-  return {
-    ok: true,
-    text: async () => text,
-  } as unknown as Response;
-}
+  vi.spyOn(
+    connector as unknown as { getGraphClient: () => unknown },
+    "getGraphClient",
+  ).mockReturnValue(mockClient as never);
 
-function makeWebPartsResponse(webParts: Array<{ innerHtml?: string }> = []) {
-  return {
-    ok: true,
-    json: async () => ({ value: webParts }),
-  } as unknown as Response;
-}
-
-function spyFetch(connector: SharePointConnector) {
-  return vi.spyOn(
-    connector as unknown as {
-      fetchWithRetry: (...args: unknown[]) => unknown;
-    },
-    "fetchWithRetry",
-  );
+  return { mockGet, mockApi };
 }
 
 describe("SharePointConnector", () => {
@@ -146,10 +100,9 @@ describe("SharePointConnector", () => {
   describe("testConnection", () => {
     it("returns success when site resolves", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse());
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
+      mockGet.mockResolvedValueOnce({ id: "site-123" });
 
       const result = await connector.testConnection({
         config: {
@@ -164,17 +117,13 @@ describe("SharePointConnector", () => {
 
     it("returns failure when site cannot be resolved", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse());
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        text: async () => "Not found",
-      } as unknown as Response);
+      mockGet.mockRejectedValueOnce(new Error("Not found"));
 
       const result = await connector.testConnection({
         config: {
+          tenantId: "test-tenant-id",
           siteUrl: "https://tenant.sharepoint.com/sites/nonexistent",
         },
         credentials,
@@ -183,49 +132,39 @@ describe("SharePointConnector", () => {
       expect(result.success).toBe(false);
     });
 
-    it("returns failure when token request fails", async () => {
+    it("returns failure when Client ID is missing", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
-
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        text: async () => "Invalid client",
-      } as unknown as Response);
 
       const result = await connector.testConnection({
         config: {
           tenantId: "test-tenant-id",
           siteUrl: "https://tenant.sharepoint.com/sites/test",
         },
-        credentials,
+        credentials: { email: "", apiToken: "secret" },
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("OAuth token request failed");
+      expect(result.error).toContain("Client ID is required");
     });
   });
 
   describe("sync — drive items", () => {
     it("syncs text files from drive", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([
-          makeDriveItem("item-1", "readme.md"),
-          makeDriveItem("item-2", "notes.txt"),
-        ]),
-      );
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("# Hello World"));
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Some notes"));
-      // Site pages
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" }) // resolveSiteId
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] }) // listDriveIds
+        .mockResolvedValueOnce({
+          value: [
+            makeDriveItem("item-1", "readme.md"),
+            makeDriveItem("item-2", "notes.txt"),
+          ],
+        }) // driveItems
+        .mockResolvedValueOnce(makeFileBuffer("# Hello World")) // readme.md download
+        .mockResolvedValueOnce(makeFileBuffer("Some notes")) // notes.txt download
+        .mockResolvedValueOnce({ value: [] }); // sitePages
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -239,7 +178,6 @@ describe("SharePointConnector", () => {
         batches.push(batch);
       }
 
-      // Drive batch + site pages batch
       expect(batches.length).toBeGreaterThanOrEqual(1);
       const driveBatch = batches[0];
       expect(driveBatch.documents).toHaveLength(2);
@@ -250,29 +188,26 @@ describe("SharePointConnector", () => {
 
     it("skips unsupported file types", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([
-          makeDriveItem("item-1", "doc.txt"),
-          {
-            ...makeDriveItem("item-2", "photo.jpg"),
-            file: { mimeType: "image/jpeg" },
-          },
-          {
-            ...makeDriveItem("item-3", "spreadsheet.xlsx"),
-            file: { mimeType: "application/vnd.openxmlformats" },
-          },
-        ]),
-      );
-      // Only doc.txt gets content downloaded
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Text content"));
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockResolvedValueOnce({
+          value: [
+            makeDriveItem("item-1", "doc.txt"),
+            {
+              ...makeDriveItem("item-2", "photo.jpg"),
+              file: { mimeType: "image/jpeg" },
+            },
+            {
+              ...makeDriveItem("item-3", "spreadsheet.xlsx"),
+              file: { mimeType: "application/vnd.openxmlformats" },
+            },
+          ],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Text content")) // doc.txt download
+        .mockResolvedValueOnce({ value: [] });
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -286,35 +221,30 @@ describe("SharePointConnector", () => {
         batches.push(batch);
       }
 
-      // Only .txt file passes the filter
       expect(batches[0].documents).toHaveLength(1);
       expect(batches[0].documents[0].title).toBe("doc.txt");
     });
 
     it("paginates drive items using @odata.nextLink", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet, mockApi } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      // First page
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([makeDriveItem("item-1", "file1.txt")], {
-          nextLink:
-            "https://graph.microsoft.com/v1.0/drives/drive-1/root/children?$skiptoken=abc",
-        }),
-      );
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Content 1"));
-      // Second page
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([makeDriveItem("item-2", "file2.txt")]),
-      );
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Content 2"));
-      // Site pages
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      const nextLinkUrl =
+        "https://graph.microsoft.com/v1.0/drives/drive-1/root/children?$skiptoken=abc";
+
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockResolvedValueOnce({
+          value: [makeDriveItem("item-1", "file1.txt")],
+          "@odata.nextLink": nextLinkUrl,
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Content 1")) // file1.txt download
+        .mockResolvedValueOnce({
+          value: [makeDriveItem("item-2", "file2.txt")],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Content 2")) // file2.txt download
+        .mockResolvedValueOnce({ value: [] }); // sitePages
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -328,25 +258,40 @@ describe("SharePointConnector", () => {
         batches.push(batch);
       }
 
-      // 2 drive batches + 1 site pages batch
       expect(batches.length).toBeGreaterThanOrEqual(2);
       expect(batches[0].documents[0].title).toBe("file1.txt");
       expect(batches[1].documents[0].title).toBe("file2.txt");
+
+      // Second drive page call should use the nextLink URL
+      const apiCalls = mockApi.mock.calls.map((c) => c[0] as string);
+      expect(apiCalls.some((u) => u === nextLinkUrl)).toBe(true);
     });
 
-    it("uses incremental filter when checkpoint exists", async () => {
+    it("skips items older than checkpoint via client-side filter", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      fetchMock.mockResolvedValueOnce(makeDriveItemsResponse([]));
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      const checkpointTime = "2024-01-15T12:00:00.000Z";
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockResolvedValueOnce({
+          value: [
+            // older than checkpoint — should be skipped
+            makeDriveItem("item-1", "old.txt", {
+              lastModified: "2024-01-10T00:00:00.000Z",
+            }),
+            // newer than checkpoint (minus safety buffer) — should be included
+            makeDriveItem("item-2", "new.txt", {
+              lastModified: "2024-01-20T00:00:00.000Z",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("New content")) // new.txt download
+        .mockResolvedValueOnce({ value: [] }); // sitePages
 
-      for await (const _ of connector.sync({
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
         config: {
           tenantId: "test-tenant-id",
           siteUrl: "https://tenant.sharepoint.com/sites/test",
@@ -354,43 +299,33 @@ describe("SharePointConnector", () => {
         credentials,
         checkpoint: {
           type: "sharepoint",
-          lastSyncedAt: "2024-01-15T12:00:00.000Z",
+          lastSyncedAt: checkpointTime,
         },
       })) {
-        // consume
+        batches.push(batch);
       }
 
-      // Drive items URL should include $filter with lastModifiedDateTime
-      // calls: [0]=token, [1]=site, [2]=token(drives), [3]=driveList, [4]=driveItems
-      const driveCallUrl = (fetchMock.mock.calls[4] as unknown[])[0] as string;
-      expect(decodeURIComponent(driveCallUrl)).toContain(
-        "$filter=lastModifiedDateTime",
-      );
+      // Only new.txt (after checkpoint) should be returned
+      expect(batches[0].documents).toHaveLength(1);
+      expect(batches[0].documents[0].title).toBe("new.txt");
     });
 
-    it("skips page and records failure when file download fails", async () => {
+    it("skips item and records failure when file download fails", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([
-          makeDriveItem("item-1", "good.txt"),
-          makeDriveItem("item-2", "bad.txt"),
-        ]),
-      );
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Good content"));
-      // bad.txt download fails
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        text: async () => "Internal Server Error",
-      } as unknown as Response);
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockResolvedValueOnce({
+          value: [
+            makeDriveItem("item-1", "good.txt"),
+            makeDriveItem("item-2", "bad.txt"),
+          ],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Good content")) // good.txt download
+        .mockRejectedValueOnce(new Error("Internal Server Error")) // bad.txt download fails
+        .mockResolvedValueOnce({ value: [] });
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -404,7 +339,6 @@ describe("SharePointConnector", () => {
         batches.push(batch);
       }
 
-      // Only good.txt is returned, bad.txt skipped
       expect(batches[0].documents).toHaveLength(1);
       expect(batches[0].documents[0].title).toBe("good.txt");
       const failures = batches[0].failures ?? [];
@@ -414,17 +348,12 @@ describe("SharePointConnector", () => {
 
     it("throws when drive items endpoint returns error", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse(["drive-1"]));
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        text: async () => "Forbidden",
-      } as unknown as Response);
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockRejectedValueOnce(new Error("Forbidden")); // driveItems
 
       const generator = connector.sync({
         config: {
@@ -443,24 +372,20 @@ describe("SharePointConnector", () => {
   describe("sync — site pages", () => {
     it("syncs site pages with web part content", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      // Empty drive list — no drive items to sync
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse([]));
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      // Site pages
-      fetchMock.mockResolvedValueOnce(
-        makeSitePagesResponse([makeSitePage("page-1", "Welcome Page")]),
-      );
-      fetchMock.mockResolvedValueOnce(
-        makeWebPartsResponse([
-          { innerHtml: "<p>Hello <b>world</b></p>" },
-          { innerHtml: "<div>More content</div>" },
-        ]),
-      );
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [] }) // listDriveIds (empty)
+        .mockResolvedValueOnce({
+          value: [makeSitePage("page-1", "Welcome Page")],
+        }) // sitePages
+        .mockResolvedValueOnce({
+          value: [
+            { innerHtml: "<p>Hello <b>world</b></p>" },
+            { innerHtml: "<div>More content</div>" },
+          ],
+        }); // webParts for page-1
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -474,7 +399,6 @@ describe("SharePointConnector", () => {
         batches.push(batch);
       }
 
-      // Last batch should be site pages
       const pageBatch = batches[batches.length - 1];
       expect(pageBatch.documents).toHaveLength(1);
       expect(pageBatch.documents[0].title).toBe("Welcome Page");
@@ -485,25 +409,23 @@ describe("SharePointConnector", () => {
 
     it("sets checkpoint from last page lastModifiedDateTime", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse([]));
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(
-        makeSitePagesResponse([
-          makeSitePage("page-1", "First", {
-            lastModified: "2024-02-01T00:00:00.000Z",
-          }),
-          makeSitePage("page-2", "Second", {
-            lastModified: "2024-03-01T00:00:00.000Z",
-          }),
-        ]),
-      );
-      fetchMock.mockResolvedValueOnce(makeWebPartsResponse([]));
-      fetchMock.mockResolvedValueOnce(makeWebPartsResponse([]));
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [] })
+        .mockResolvedValueOnce({
+          value: [
+            makeSitePage("page-1", "First", {
+              lastModified: "2024-02-01T00:00:00.000Z",
+            }),
+            makeSitePage("page-2", "Second", {
+              lastModified: "2024-03-01T00:00:00.000Z",
+            }),
+          ],
+        })
+        .mockResolvedValueOnce({ value: [] }) // webParts for page-1
+        .mockResolvedValueOnce({ value: [] }); // webParts for page-2
 
       const batches: ConnectorSyncBatch[] = [];
       for await (const batch of connector.sync({
@@ -528,18 +450,16 @@ describe("SharePointConnector", () => {
   describe("sync — config options", () => {
     it("uses specific driveIds when provided", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet, mockApi } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      // No listDriveIds call since driveIds provided
-      fetchMock.mockResolvedValueOnce(
-        makeDriveItemsResponse([makeDriveItem("item-1", "file.txt")]),
-      );
-      fetchMock.mockResolvedValueOnce(makeFileContentResponse("Content"));
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // pages phase
-      fetchMock.mockResolvedValueOnce(makeSitePagesResponse([]));
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        // No listDriveIds call since driveIds provided
+        .mockResolvedValueOnce({
+          value: [makeDriveItem("item-1", "file.txt")],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Content")) // file.txt download
+        .mockResolvedValueOnce({ value: [] }); // sitePages
 
       for await (const _ of connector.sync({
         config: {
@@ -553,28 +473,104 @@ describe("SharePointConnector", () => {
         // consume
       }
 
-      // Should NOT have called /drives to list — goes directly to specific drive
-      const urls = fetchMock.mock.calls.map(
-        (c) => (c as unknown[])[0] as string,
-      );
-      expect(urls.some((u) => u.includes("/drives/specific-drive/"))).toBe(
+      const apiCalls = mockApi.mock.calls.map((c) => c[0] as string);
+      expect(apiCalls.some((u) => u.includes("/drives/specific-drive/"))).toBe(
         true,
       );
-      expect(urls.some((u) => u.includes("/drives?$select=id"))).toBe(false);
+      expect(apiCalls.some((u) => u.includes("/drives?$select=id"))).toBe(
+        false,
+      );
+    });
+
+    it("syncs image files when embeddingInputModalities includes image", async () => {
+      const connector = new SharePointConnector();
+      const { mockGet, mockApi } = setupMockClient(connector);
+
+      // Use a standalone ArrayBuffer (not from Node.js pool) so Buffer.from(ab)
+      // round-trips exactly to the original bytes.
+      const imageContent = "fake-png-data";
+      const imageBytes = Buffer.from(imageContent);
+      const imageArrayBuffer: ArrayBuffer = imageBytes.buffer.slice(
+        imageBytes.byteOffset,
+        imageBytes.byteOffset + imageBytes.byteLength,
+      );
+      const expectedBase64 = imageBytes.toString("base64");
+
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" }) // resolveSiteId
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] }) // listDriveIds
+        .mockResolvedValueOnce({
+          value: [makeDriveItem("item-1", "diagram.png")],
+        }) // driveItems
+        .mockResolvedValueOnce(imageArrayBuffer) // image download
+        .mockResolvedValueOnce({ value: [] }); // sitePages
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: {
+          tenantId: "test-tenant-id",
+          siteUrl: "https://tenant.sharepoint.com/sites/test",
+        },
+        credentials,
+        checkpoint: null,
+        embeddingInputModalities: ["text", "image"],
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches[0].documents).toHaveLength(1);
+      const doc = batches[0].documents[0];
+      expect(doc.title).toBe("diagram.png");
+      expect(doc.mediaContent).toBeDefined();
+      expect(doc.mediaContent?.mimeType).toBe("image/png");
+      expect(doc.mediaContent?.data).toBe(expectedBase64);
+
+      const apiCalls = mockApi.mock.calls.map((c) => c[0] as string);
+      expect(apiCalls.some((u) => u.includes("/content"))).toBe(true);
+    });
+
+    it("skips image files when embeddingInputModalities does not include image", async () => {
+      const connector = new SharePointConnector();
+      const { mockGet } = setupMockClient(connector);
+
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [{ id: "drive-1" }] })
+        .mockResolvedValueOnce({
+          value: [
+            makeDriveItem("item-1", "doc.txt"),
+            makeDriveItem("item-2", "photo.png"),
+          ],
+        })
+        .mockResolvedValueOnce(makeFileBuffer("Text content")) // doc.txt download
+        .mockResolvedValueOnce({ value: [] }); // sitePages (photo.png skipped)
+
+      const batches: ConnectorSyncBatch[] = [];
+      for await (const batch of connector.sync({
+        config: {
+          tenantId: "test-tenant-id",
+          siteUrl: "https://tenant.sharepoint.com/sites/test",
+        },
+        credentials,
+        checkpoint: null,
+        embeddingInputModalities: ["text"], // no "image"
+      })) {
+        batches.push(batch);
+      }
+
+      expect(batches[0].documents).toHaveLength(1);
+      expect(batches[0].documents[0].title).toBe("doc.txt");
     });
 
     it("skips site pages when includePages is false", async () => {
       const connector = new SharePointConnector();
-      const fetchMock = spyFetch(connector);
+      const { mockGet, mockApi } = setupMockClient(connector);
 
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // initial
-      fetchMock.mockResolvedValueOnce(makeSiteResponse());
-      fetchMock.mockResolvedValueOnce(makeTokenResponse()); // drives phase
-      fetchMock.mockResolvedValueOnce(makeDriveListResponse([]));
-      // No site pages call expected
+      mockGet
+        .mockResolvedValueOnce({ id: "site-123" })
+        .mockResolvedValueOnce({ value: [] }); // listDriveIds
 
-      const batches: ConnectorSyncBatch[] = [];
-      for await (const batch of connector.sync({
+      for await (const _ of connector.sync({
         config: {
           tenantId: "test-tenant-id",
           siteUrl: "https://tenant.sharepoint.com/sites/test",
@@ -583,14 +579,11 @@ describe("SharePointConnector", () => {
         credentials,
         checkpoint: null,
       })) {
-        batches.push(batch);
+        // consume
       }
 
-      // No site pages URL called
-      const urls = fetchMock.mock.calls.map(
-        (c) => (c as unknown[])[0] as string,
-      );
-      expect(urls.some((u) => u.includes("/pages"))).toBe(false);
+      const apiCalls = mockApi.mock.calls.map((c) => c[0] as string);
+      expect(apiCalls.some((u) => u.includes("/pages"))).toBe(false);
     });
   });
 });

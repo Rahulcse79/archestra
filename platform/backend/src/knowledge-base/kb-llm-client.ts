@@ -15,6 +15,9 @@ export interface EmbeddingConfig {
   model: EmbeddingModel;
   dimensions: number;
   provider: SupportedProvider;
+  /** Input modalities supported by this embedding model (e.g. ["text", "image"]).
+   * Null when no model record exists (older deployments). */
+  inputModalities: string[] | null;
 }
 
 interface RerankerConfig {
@@ -59,6 +62,7 @@ export async function resolveEmbeddingConfig(
      */
     dimensions: model?.embeddingDimensions ?? org.embeddingDimensions ?? 1536,
     provider: resolved.provider,
+    inputModalities: model?.inputModalities ?? null,
   };
 }
 

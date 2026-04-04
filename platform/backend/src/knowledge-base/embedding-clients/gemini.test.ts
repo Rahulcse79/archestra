@@ -23,7 +23,7 @@ describe("callGeminiEmbedding", () => {
     } as never);
 
     const response = await callGeminiEmbedding({
-      texts: ["first", "second"],
+      inputs: ["first", "second"],
       model: "gemini-embedding-001",
       apiKey: "test-key",
       baseUrl: "https://example.test",
@@ -60,7 +60,7 @@ describe("callGeminiEmbedding", () => {
 
     await expect(
       callGeminiEmbedding({
-        texts: ["first", "second"],
+        inputs: ["first", "second"],
         model: "gemini-embedding-001",
         apiKey: "test-key",
       }),
@@ -83,7 +83,7 @@ describe("callGeminiEmbedding", () => {
 
     await expect(
       callGeminiEmbedding({
-        texts: ["first"],
+        inputs: ["first"],
         model: "gemini-embedding-001",
         apiKey: "test-key",
       }),

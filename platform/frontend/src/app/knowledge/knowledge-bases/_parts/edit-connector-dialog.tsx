@@ -389,6 +389,12 @@ export function EditConnectorDialog({
                 <FormDescription>
                   Leave empty to keep existing credentials unchanged.
                 </FormDescription>
+                {connectorType === "sharepoint" && (
+                  <p className="text-[0.8rem] text-muted-foreground">
+                    The Azure AD app registration requires the{" "}
+                    <code>Sites.Read.All</code> permission on Microsoft Graph.
+                  </p>
+                )}
                 <FormMessage />
               </FormItem>
             )}

@@ -21,6 +21,7 @@ import {
   extractErrorMessage,
 } from "./connectors/base-connector";
 import { getConnector } from "./connectors/registry";
+import { resolveEmbeddingConfig } from "./kb-llm-client";
 
 /**
  * Service that orchestrates the sync of data from external connectors
@@ -121,11 +122,24 @@ class ConnectorSyncService {
     const startTime = Date.now();
     let stoppedEarly = false;
 
+    // Resolve the embedding model's supported input modalities so connectors
+    // can conditionally ingest non-text content (e.g. images).
+    let embeddingInputModalities: string[] | undefined;
+    try {
+      const embeddingConfig = await resolveEmbeddingConfig(
+        connector.organizationId,
+      );
+      embeddingInputModalities = embeddingConfig?.inputModalities ?? undefined;
+    } catch {
+      // Non-fatal: proceed without modality info
+    }
+
     try {
       const syncGenerator = connectorImpl.sync({
         config: connector.config as Record<string, unknown>,
         credentials,
         checkpoint: connector.checkpoint as Record<string, unknown> | null,
+        embeddingInputModalities,
       });
 
       for await (const batch of syncGenerator) {
@@ -147,6 +161,7 @@ class ConnectorSyncService {
               ingestedDocumentIds.push(result.documentId);
             }
           } catch (docError) {
+            itemErrors++;
             runLog.warn(
               {
                 documentId: doc.id,
@@ -351,11 +366,18 @@ class ConnectorSyncService {
   }): Promise<{ ingested: boolean; documentId: string | null }> {
     const { doc, connectorId, connectorType, organizationId, log } = params;
 
-    const hashInput = doc.metadata
-      ? doc.content +
-        "\n" +
-        JSON.stringify(doc.metadata, Object.keys(doc.metadata).sort())
-      : doc.content;
+    // Include media data in hash so unchanged images are properly skipped.
+    const hashInput = doc.mediaContent
+      ? `${doc.mediaContent.mimeType}:${doc.mediaContent.data}` +
+        (doc.metadata
+          ? "\n" +
+            JSON.stringify(doc.metadata, Object.keys(doc.metadata).sort())
+          : "")
+      : doc.metadata
+        ? doc.content +
+          "\n" +
+          JSON.stringify(doc.metadata, Object.keys(doc.metadata).sort())
+        : doc.content;
     const contentHash = createHash("sha256").update(hashInput).digest("hex");
 
     // Lookup existing document by connector + source ID
@@ -393,6 +415,7 @@ class ConnectorSyncService {
         documentId: existing.id,
         title: doc.title,
         content: doc.content,
+        mediaContent: doc.mediaContent,
         metadata: doc.metadata,
         connectorType,
         acl: existing.acl as AclEntry[],
@@ -426,6 +449,7 @@ class ConnectorSyncService {
       documentId: created.id,
       title: doc.title,
       content: doc.content,
+      mediaContent: doc.mediaContent,
       metadata: doc.metadata,
       connectorType,
       acl: [],
@@ -445,13 +469,42 @@ class ConnectorSyncService {
     documentId: string;
     title: string;
     content: string;
+    mediaContent?: { mimeType: string; data: string };
     metadata?: Record<string, unknown>;
     connectorType: string;
     acl: AclEntry[];
     log: pino.Logger;
   }): Promise<void> {
-    const { documentId, title, content, metadata, connectorType, acl, log } =
-      params;
+    const {
+      documentId,
+      title,
+      content,
+      mediaContent,
+      metadata,
+      connectorType,
+      acl,
+      log,
+    } = params;
+
+    // For media (image) documents: create a single chunk whose content is the
+    // data URL. The embedding pipeline detects this prefix and routes to the
+    // multimodal embedding API instead of text embedding.
+    if (mediaContent) {
+      const dataUrl = `data:${mediaContent.mimeType};base64,${mediaContent.data}`;
+      await KbChunkModel.insertMany([
+        {
+          documentId,
+          content: dataUrl,
+          chunkIndex: 0,
+          metadataSuffixSemantic: null,
+          metadataSuffixKeyword: null,
+          acl,
+        },
+      ]);
+      metrics.rag.reportChunksCreated(connectorType, 1);
+      log.debug({ documentId }, "Image document stored as single media chunk");
+      return;
+    }
 
     const chunks = await chunkDocument({ title, content, metadata });
 
