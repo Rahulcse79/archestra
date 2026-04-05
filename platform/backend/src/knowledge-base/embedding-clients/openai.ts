@@ -16,8 +16,8 @@ export class OpenAIEmbeddingError extends Error {
  * Embed multiple inputs using the OpenAI-compatible `/v1/embeddings` endpoint.
  * Works with OpenAI, Ollama, and any provider that exposes the OpenAI embeddings API.
  *
- * OpenAI-compatible providers support text only. Non-text inputs fall back to
- * a `"[image]"` placeholder so index alignment is preserved.
+ * OpenAI-compatible providers support text only. Non-text inputs (images)
+ * will throw — they should never reach this client in normal operation.
  */
 export async function callOpenAIEmbedding(params: {
   inputs: EmbeddingInput[];
@@ -27,10 +27,17 @@ export async function callOpenAIEmbedding(params: {
   dimensions?: number;
 }): Promise<EmbeddingApiResponse> {
   const { inputs, model, apiKey, baseUrl, dimensions } = params;
-  // OpenAI-compatible APIs are text-only: map image inputs to a placeholder.
-  const texts = inputs.map((input) =>
-    typeof input === "string" ? input : "[image]",
-  );
+  // OpenAI-compatible APIs are text-only: reject non-text inputs.
+  // Images should never reach here because connectors only ingest images when
+  // the embedding model's inputModalities includes "image", which OpenAI models don't.
+  const texts = inputs.map((input) => {
+    if (typeof input === "string") return input;
+    throw new OpenAIEmbeddingError(
+      400,
+      "OpenAI-compatible embedding APIs do not support image inputs. " +
+        "Configure a multimodal embedding model (e.g. gemini-embedding-2-preview) to embed images.",
+    );
+  });
 
   const client = new OpenAI({
     apiKey,

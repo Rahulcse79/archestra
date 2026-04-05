@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ModelInputModality } from "@shared";
 import type pino from "pino";
 import defaultLogger from "@/logging";
 import {
@@ -124,7 +125,7 @@ class ConnectorSyncService {
 
     // Resolve the embedding model's supported input modalities so connectors
     // can conditionally ingest non-text content (e.g. images).
-    let embeddingInputModalities: string[] | undefined;
+    let embeddingInputModalities: ModelInputModality[] | undefined;
     try {
       const embeddingConfig = await resolveEmbeddingConfig(
         connector.organizationId,

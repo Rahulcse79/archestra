@@ -1,4 +1,8 @@
-import type { EmbeddingModel, SupportedProvider } from "@shared";
+import type {
+  EmbeddingModel,
+  ModelInputModality,
+  SupportedProvider,
+} from "@shared";
 import { DEFAULT_PROVIDER_BASE_URLS } from "@shared";
 import { createDirectLLMModel, type LLMModel } from "@/clients/llm-client";
 import logger from "@/logging";
@@ -16,8 +20,9 @@ export interface EmbeddingConfig {
   dimensions: number;
   provider: SupportedProvider;
   /** Input modalities supported by this embedding model (e.g. ["text", "image"]).
-   * Null when no model record exists (older deployments). */
-  inputModalities: string[] | null;
+   * Null when no matching record exists in the models table (e.g. the model name
+   * hasn't been synced from models.dev yet, or no model is configured). */
+  inputModalities: ModelInputModality[] | null;
 }
 
 interface RerankerConfig {

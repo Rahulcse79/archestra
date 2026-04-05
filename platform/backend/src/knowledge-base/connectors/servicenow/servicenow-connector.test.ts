@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 import { afterEach, beforeEach, describe, expect, test } from "@/test";
 import type { ConnectorSyncBatch } from "@/types";
-import { ServiceNowConnector, stripHtmlTags } from "./servicenow-connector";
+import { ServiceNowConnector } from "./servicenow-connector";
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -1000,30 +1000,5 @@ describe("ServiceNowConnector", () => {
     });
   });
 
-  describe("stripHtmlTags", () => {
-    test("strips simple HTML tags", () => {
-      expect(stripHtmlTags("<p>Hello world</p>")).toBe("Hello world");
-    });
-
-    test("handles nested tags", () => {
-      const html = "<p>Text with <strong>bold</strong> and <em>italic</em></p>";
-      expect(stripHtmlTags(html)).toBe("Text with bold and italic");
-    });
-
-    test("replaces block elements with newlines", () => {
-      const html = "<p>First</p><p>Second</p>";
-      const result = stripHtmlTags(html);
-      expect(result).toContain("First");
-      expect(result).toContain("Second");
-      expect(result).toContain("\n");
-    });
-
-    test("decodes HTML entities", () => {
-      expect(stripHtmlTags("&amp; &lt; &gt; &quot; &#39;")).toBe("& < > \" '");
-    });
-
-    test("returns empty string for empty input", () => {
-      expect(stripHtmlTags("")).toBe("");
-    });
-  });
+  // stripHtmlTags tests moved to @/utils/strip-html.test.ts
 });

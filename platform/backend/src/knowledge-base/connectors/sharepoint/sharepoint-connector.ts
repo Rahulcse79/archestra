@@ -11,6 +11,7 @@ import type {
   SharePointConfig,
 } from "@/types";
 import { SharePointConfigSchema } from "@/types";
+import { stripHtmlTags } from "@/utils/strip-html";
 import {
   BaseConnector,
   buildCheckpoint,
@@ -555,7 +556,7 @@ export class SharePointConnector extends BaseConnector {
     const parts: string[] = [];
     for (const webPart of result.value) {
       if (webPart.innerHtml) {
-        parts.push(stripHtml(webPart.innerHtml));
+        parts.push(stripHtmlTags(webPart.innerHtml));
       }
     }
 
@@ -570,6 +571,8 @@ type GraphListResponse<T> = {
   "@odata.nextLink"?: string;
 };
 
+// Narrowed from @microsoft/microsoft-graph-types — the SDK types make every field
+// NullableOption<T> | undefined, but our $select queries guarantee these fields exist.
 type DriveItem = {
   id: string;
   name: string;
@@ -700,23 +703,6 @@ async function extractTextFromPptx(buffer: Buffer): Promise<string> {
   }
 
   return parts.join("\n\n");
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<\/div>/gi, "\n")
-    .replace(/<\/li>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function driveItemToDocument(

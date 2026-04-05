@@ -1,3 +1,4 @@
+import type { ModelInputModality } from "@shared";
 import { z } from "zod";
 
 // ===== Connector Type =====
@@ -299,6 +300,6 @@ export interface Connector {
      * Connectors can use this to conditionally ingest non-text content
      * (e.g. images) only when the embedding model can handle it.
      */
-    embeddingInputModalities?: string[];
+    embeddingInputModalities?: ModelInputModality[];
   }): AsyncGenerator<ConnectorSyncBatch>;
 }
