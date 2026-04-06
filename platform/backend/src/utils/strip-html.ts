@@ -8,12 +8,7 @@ export function stripHtmlTags(html: string): string {
   let text = html;
   text = text.replace(/<\/(p|div|h[1-6]|li|tr|br\s*\/?)>/gi, "\n");
   text = text.replace(/<br\s*\/?>/gi, "\n");
-  // Iteratively strip tags to handle nested/malformed markup
-  let prev: string;
-  do {
-    prev = text;
-    text = text.replace(/<[^>]+>/g, "");
-  } while (text !== prev);
+  text = stripTagsIteratively(text);
   text = text.replace(
     /&(amp|lt|gt|quot|#39|nbsp);/g,
     (_match, entity: string) => HTML_ENTITY_MAP[entity] ?? _match,
@@ -101,3 +96,19 @@ const HTML_ENTITY_MAP: Record<string, string> = {
   "#39": "'",
   nbsp: " ",
 };
+
+const MAX_TAG_STRIP_ITERATIONS = 50;
+
+function stripTagsIteratively(text: string): string {
+  let stripped = text;
+  let previous = "";
+  let iterations = 0;
+
+  while (stripped !== previous && iterations < MAX_TAG_STRIP_ITERATIONS) {
+    previous = stripped;
+    stripped = stripped.replace(/<[^>]+>/g, "");
+    iterations++;
+  }
+
+  return stripped;
+}

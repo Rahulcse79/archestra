@@ -36,6 +36,11 @@ describe("stripHtmlTags", () => {
     const result = stripHtmlTags(html);
     expect(result).not.toContain("\n\n\n");
   });
+
+  test("strips tags iteratively when nested markup reconstitutes outer tags", () => {
+    const html = "<<script>alert(1)</script>";
+    expect(stripHtmlTags(html)).toBe("alert(1)");
+  });
 });
 
 describe("stripHtmlEmail", () => {

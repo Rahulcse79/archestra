@@ -137,6 +137,10 @@ To configure the connector:
 - `Client Secret` is the secret **Value** from **Certificates & secrets**, not the secret ID
 - `Site URL` should be the exact SharePoint site web URL, not just the display name
 
+Known limitation:
+
+- SharePoint file sync currently lists only the direct children of the selected drive root or `Folder Path`. Nested subfolders are not traversed recursively. If you need multiple nested folders today, point `Folder Path` at the specific folder you want to sync or create separate connectors.
+
 Incremental sync uses the `lastModifiedDateTime` field to fetch only items modified since the last run.
 
 ## Managing Connectors

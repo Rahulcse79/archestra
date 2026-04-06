@@ -133,5 +133,56 @@ export function ConnectorRunDetailsDialog({
 }
 
 function formatConnectorRunLogs(logs: string): string {
-  return logs.replaceAll("}{", "}\n{");
+  let formatted = "";
+  let depth = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < logs.length; i++) {
+    const char = logs[i];
+    formatted += char;
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      depth++;
+      continue;
+    }
+
+    if (char === "}" || char === "]") {
+      depth = Math.max(0, depth - 1);
+
+      const nextChar = logs[i + 1];
+      const nextNonWhitespace = logs.slice(i + 1).match(/\S/)?.[0];
+      if (
+        depth === 0 &&
+        nextChar !== "\n" &&
+        (nextNonWhitespace === "{" || nextNonWhitespace === "[")
+      ) {
+        formatted += "\n";
+      }
+    }
+  }
+
+  return formatted;
 }

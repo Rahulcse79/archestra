@@ -186,10 +186,13 @@ export class SharePointConnector extends BaseConnector {
 
   // ===== Private methods =====
 
-  protected getGraphClient(
+  private getGraphClient(
     credentials: ConnectorCredentials,
     config: SharePointConfig,
   ): Client {
+    // SharePoint reuses ConnectorCredentials.email to store the Azure AD
+    // Application (client) ID so we can fit the existing connector credential
+    // schema without a SharePoint-specific secret shape.
     const clientId = credentials.email;
 
     if (!clientId) {
@@ -777,6 +780,8 @@ function buildDriveItemsUrl(
   folderPath: string | undefined,
   batchSize: number,
 ): string {
+  // This lists only the direct children of the selected root/folder. Nested
+  // subfolders are not traversed recursively.
   const basePath = folderPath
     ? `${GRAPH_API_BASE}/drives/${driveId}/root:/${encodeURIComponent(folderPath)}:/children`
     : `${GRAPH_API_BASE}/drives/${driveId}/root/children`;
@@ -858,7 +863,7 @@ async function extractTextFromPptx(buffer: Buffer): Promise<string> {
     // Extract text from <a:t> tags (DrawingML text runs)
     const texts = xml.match(/<a:t[^>]*>([^<]*)<\/a:t>/g);
     if (texts) {
-      const slideText = texts.map((t) => t.replace(/<[^>]+>/g, "")).join(" ");
+      const slideText = texts.map((text) => stripHtmlTags(text)).join(" ");
       if (slideText.trim()) parts.push(slideText.trim());
     }
   }
