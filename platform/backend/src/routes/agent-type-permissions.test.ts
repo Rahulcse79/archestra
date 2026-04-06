@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "@/test";
 import type { User } from "@/types";
 
 vi.mock("@/observability", () => ({
+  initializeObservabilityMetrics: vi.fn(),
   metrics: {
     llm: { initializeMetrics: vi.fn() },
     mcp: { initializeMcpMetrics: vi.fn() },
@@ -612,7 +613,7 @@ describe("agent type permission isolation (routes)", () => {
         name: "Policy Configuration Subagent",
         builtInAgentConfig: {
           name: BUILT_IN_AGENT_IDS.POLICY_CONFIG,
-          autoConfigureOnToolAssignment: true,
+          autoConfigureOnToolDiscovery: true,
         },
         authorId: adminUser.id,
       });

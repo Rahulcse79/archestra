@@ -1,4 +1,5 @@
 import {
+  buildUserSystemPromptContext,
   type ChatErrorResponse,
   isSupportedProvider,
   RouteId,
@@ -32,7 +33,6 @@ import {
   createLLMModelForAgent,
   detectProviderFromModel,
   isApiKeyRequired,
-  resolveProviderApiKey,
 } from "@/clients/llm-client";
 import config from "@/config";
 import { browserStreamFeature } from "@/features/browser-stream/services/browser-stream.feature";
@@ -44,15 +44,15 @@ import {
   ConversationModel,
   ConversationShareModel,
   LlmProviderApiKeyModel,
+  MemberModel,
   MessageModel,
   TeamModel,
 } from "@/models";
 import { startActiveChatSpan } from "@/observability/tracing";
-import { resolveConversationLlmSelectionForAgent } from "@/services/conversation-llm-selection";
 import {
   promptNeedsRendering,
   renderSystemPrompt,
-  type SystemPromptContext,
+  type UserSystemPromptContext,
 } from "@/templating";
 import {
   ApiError,
@@ -63,12 +63,14 @@ import {
   ErrorResponsesSchema,
   InsertConversationSchema,
   SelectConversationSchema,
-  SelectConversationShareSchema,
+  SelectConversationShareWithTargetsSchema,
   type UpdateConversation,
   UpdateConversationSchema,
   UuidIdSchema,
 } from "@/types";
+import { resolveProviderApiKey } from "@/utils/llm-api-key-resolution";
 import {
+  resolveConversationLlmSelectionForAgent,
   resolveFastModelName,
   resolveSmartDefaultLlmForChat,
 } from "@/utils/llm-resolution";
@@ -211,16 +213,14 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
       let systemPrompt: string | undefined;
 
       // Build template context only when prompts use Handlebars syntax
-      let promptContext: SystemPromptContext | null = null;
+      let promptContext: UserSystemPromptContext | null = null;
       if (promptNeedsRendering(agent.systemPrompt)) {
         const userTeams = await TeamModel.getUserTeams(user.id);
-        promptContext = {
-          user: {
-            name: user.name,
-            email: user.email,
-            teams: userTeams.map((t) => t.name),
-          },
-        };
+        promptContext = buildUserSystemPromptContext({
+          userName: user.name,
+          userEmail: user.email,
+          userTeams: userTeams.map((t) => t.name),
+        });
       }
 
       const renderedPrompt = renderSystemPrompt(
@@ -828,7 +828,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
       },
     },
     async ({ params: { id }, user, organizationId }, reply) => {
-      const conversation = await ConversationModel.findById({
+      const conversation = await ConversationModel.findAccessibleById({
         id: id,
         userId: user.id,
         organizationId: organizationId,
@@ -1141,7 +1141,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         tags: ["Chat"],
         params: z.object({ id: UuidIdSchema }),
         response: constructResponseSchema(
-          SelectConversationShareSchema.nullable(),
+          SelectConversationShareWithTargetsSchema.nullable(),
         ),
       },
     },
@@ -1167,16 +1167,45 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
     {
       schema: {
         operationId: RouteId.ShareConversation,
-        description: "Share a conversation with your organization",
+        description:
+          "Share a conversation with your organization, specific teams, or specific users",
         tags: ["Chat"],
         params: z.object({ id: UuidIdSchema }),
-        body: z.object({
-          visibility: z.enum(["organization"]),
-        }),
-        response: constructResponseSchema(SelectConversationShareSchema),
+        body: z
+          .object({
+            visibility: z.enum(["organization", "team", "user"]),
+            teamIds: z.array(z.string()).optional(),
+            userIds: z.array(z.string()).optional(),
+          })
+          .superRefine((value, ctx) => {
+            if (
+              value.visibility === "team" &&
+              (value.teamIds ?? []).length === 0
+            ) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Select at least one team",
+                path: ["teamIds"],
+              });
+            }
+
+            if (
+              value.visibility === "user" &&
+              (value.userIds ?? []).length === 0
+            ) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Select at least one user",
+                path: ["userIds"],
+              });
+            }
+          }),
+        response: constructResponseSchema(
+          SelectConversationShareWithTargetsSchema,
+        ),
       },
     },
-    async ({ params: { id }, body: { visibility }, user, organizationId }) => {
+    async ({ params: { id }, body, user, organizationId }) => {
       const conversation = await ConversationModel.findById({
         id,
         userId: user.id,
@@ -1186,19 +1215,42 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         throw new ApiError(404, "Conversation not found");
       }
 
-      const existing = await ConversationShareModel.findByConversationId({
-        conversationId: id,
-        organizationId,
-      });
-      if (existing) {
-        return existing;
+      const teamIds = Array.from(new Set(body.teamIds ?? []));
+      const userIds = Array.from(new Set(body.userIds ?? []));
+
+      if (body.visibility === "team") {
+        const teams = await TeamModel.findByIds(teamIds);
+        const validTeamIds = new Set(
+          teams
+            .filter((team) => team.organizationId === organizationId)
+            .map((team) => team.id),
+        );
+
+        if (validTeamIds.size !== teamIds.length) {
+          throw new ApiError(400, "One or more selected teams are invalid");
+        }
       }
 
-      return ConversationShareModel.create({
+      if (body.visibility === "user") {
+        const validUserIds = new Set(
+          await MemberModel.findUserIdsInOrganization({
+            organizationId,
+            userIds,
+          }),
+        );
+
+        if (validUserIds.size !== userIds.length) {
+          throw new ApiError(400, "One or more selected users are invalid");
+        }
+      }
+
+      return ConversationShareModel.upsert({
         conversationId: id,
         organizationId,
         createdByUserId: user.id,
-        visibility,
+        visibility: body.visibility,
+        teamIds: body.visibility === "team" ? teamIds : [],
+        userIds: body.visibility === "user" ? userIds : [],
       });
     },
   );
@@ -1244,10 +1296,11 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         ),
       },
     },
-    async ({ params: { shareId }, organizationId }) => {
+    async ({ params: { shareId }, organizationId, user }) => {
       const conversation = await ConversationShareModel.getSharedConversation({
         shareId,
         organizationId,
+        userId: user.id,
       });
 
       if (!conversation) {
@@ -1283,6 +1336,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         await ConversationShareModel.getSharedConversation({
           shareId,
           organizationId,
+          userId: user.id,
         });
 
       if (!sharedConversation) {
@@ -1294,6 +1348,7 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
         organizationId,
         agentId,
         selectedModel: sharedConversation.selectedModel,
+        selectedProvider: sharedConversation.selectedProvider ?? undefined,
       });
 
       if (sharedConversation.messages.length > 0) {
@@ -1837,11 +1892,11 @@ async function persistNewMessages(
     // Get existing messages count to know how many are new
     const existingMessages =
       await MessageModel.findByConversation(conversationId);
-    const existingCount = existingMessages.length;
-
-    // Use input messages to find new messages
     const uiMessages = messages as ChatMessage[];
-    const newMessages = uiMessages.slice(existingCount);
+    const newMessages = getMessagesNotYetPersisted({
+      existingMessages,
+      uiMessages,
+    });
 
     if (newMessages.length === 0) {
       return 0;
@@ -1905,6 +1960,41 @@ async function persistNewMessages(
     );
     throw error;
   }
+}
+
+function getMessagesNotYetPersisted(params: {
+  existingMessages: Array<{ id: string; content: unknown }>;
+  uiMessages: ChatMessage[];
+}): ChatMessage[] {
+  const existingIds = new Set<string>();
+
+  for (const message of params.existingMessages) {
+    existingIds.add(message.id);
+
+    // Persisted messages are re-keyed to DB UUIDs when conversations reload, but
+    // in-flight useChat requests can still carry the original temporary content
+    // ids. Track both forms so follow-up turns after swap_agent do not get
+    // dropped just because the incoming thread is shorter than the DB thread.
+    const contentId =
+      typeof message.content === "object" &&
+      message.content !== null &&
+      "id" in message.content &&
+      typeof message.content.id === "string"
+        ? message.content.id
+        : null;
+
+    if (contentId) {
+      existingIds.add(contentId);
+    }
+  }
+
+  return params.uiMessages.filter((message) => {
+    if (!message.id || typeof message.id !== "string") {
+      return true;
+    }
+
+    return !existingIds.has(message.id);
+  });
 }
 
 function prepareMessagesForProvider(params: {
@@ -2083,6 +2173,7 @@ async function validateChatApiKeyAccess(
 }
 
 export const __test = {
+  getMessagesNotYetPersisted,
   prepareMessagesForProvider,
 };
 

@@ -3,7 +3,7 @@ title: "Access Control"
 category: Administration
 description: "Role-based access control (RBAC) system for managing user permissions in Archestra"
 order: 1
-lastUpdated: 2026-03-27
+lastUpdated: 2026-04-03
 ---
 <!--
 Check ../docs_writer_prompt.md before changing this file.
@@ -50,7 +50,7 @@ Full access to core resources and settings, but cannot manage users, roles, or i
 | MCP Registry | `read`, `create`, `update`, `delete` |
 | MCP Server Installations | `read`, `create`, `update`, `delete` |
 | MCP Server Installation Requests | `read`, `create`, `update`, `delete` |
-| Knowledge Bases | `read`, `create`, `update`, `delete`, `query` |
+| Knowledge Sources | `read`, `create`, `update`, `delete`, `query` |
 | Chats | `read`, `create`, `update`, `delete` |
 | Logs | `read` |
 | API Keys | `read`, `create`, `delete` |
@@ -79,11 +79,11 @@ Can manage agents, tools, and chat, with read-only access to most other resource
 | LLM Virtual Keys | `read` |
 | LLM Models | `read` |
 | MCP Gateways | `read`, `create`, `update`, `delete` |
-| Tools & Policies | `read`, `create`, `update`, `delete` |
+| Tools & Policies | `read` |
 | MCP Registry | `read` |
 | MCP Server Installations | `read`, `create`, `delete` |
 | MCP Server Installation Requests | `read`, `create`, `update` |
-| Knowledge Bases | `read`, `query` |
+| Knowledge Sources | `read`, `query` |
 | Chats | `read`, `create`, `update`, `delete` |
 | API Keys | `read`, `create`, `delete` |
 | Teams | `read` |
@@ -133,13 +133,14 @@ The following table lists all available permissions that can be assigned to cust
 | `identityProvider:delete` | Remove identity providers |
 | `invitation:create` | Send invitations to new users |
 | `invitation:cancel` | Cancel pending invitations |
-| `knowledgeBase:read` | View knowledge bases and connectors |
-| `knowledgeBase:create` | Create knowledge bases and connectors |
-| `knowledgeBase:update` | Modify knowledge bases and connectors |
-| `knowledgeBase:delete` | Delete knowledge bases and connectors |
-| `knowledgeBase:query` | Query knowledge sources for information retrieval |
 | `knowledgeSettings:read` | View knowledge settings (embedding and reranking models) |
 | `knowledgeSettings:update` | Modify knowledge settings (embedding and reranking models) |
+| `knowledgeSource:read` | View knowledge bases and connectors |
+| `knowledgeSource:create` | Create knowledge bases and connectors |
+| `knowledgeSource:update` | Modify knowledge bases and connectors |
+| `knowledgeSource:delete` | Delete knowledge bases and connectors |
+| `knowledgeSource:query` | Query knowledge sources for information retrieval |
+| `knowledgeSource:admin` | View all knowledge bases and connectors, bypassing visibility restrictions |
 | `llmCost:read` | View LLM usage cost statistics and analytics |
 | `llmLimit:read` | View token usage limits |
 | `llmLimit:create` | Create new usage limits |
@@ -208,6 +209,56 @@ The following table lists all available permissions that can be assigned to cust
 | `toolPolicy:create` | Register tools and create security policies |
 | `toolPolicy:update` | Modify tools, tool configuration, and security policies |
 | `toolPolicy:delete` | Remove tools and security policies |
+
+
+## Scoped Resources
+
+Some resources use a two-step authorization model:
+
+1. RBAC grants a base action such as `read`, `create`, `update`, or `delete`
+2. Runtime scope rules further restrict which records a user can see or modify
+
+The most common scopes are:
+
+- `personal`: owned by one user
+- `team`: shared with one or more teams
+- `org`: shared across the organization
+
+The elevated actions `:admin` and `:team-admin` are not global shortcuts with identical meaning on every resource. Their effect depends on the resource's runtime authorization rules.
+
+### Agents, MCP Gateways, and LLM Proxies
+
+`agent`, `mcpGateway`, and `llmProxy` share the same scope model:
+
+- `personal`: the author can manage their own records
+- `team`: requires `<resource>:team-admin` and membership in at least one assigned team
+- `org`: requires `<resource>:admin`
+
+Examples:
+
+- `agent:delete` alone does **not** allow deleting every agent
+- `agent:team-admin` allows managing team-scoped agents only in teams the user belongs to
+- `agent:admin` bypasses those scope restrictions
+
+### Visibility-Scoped Credentials
+
+`llmProviderApiKey` and `llmVirtualKey` also support `personal`, `team`, and `org` scope, but they use different elevated permissions:
+
+- Personal records are limited to their owner
+- Team records require membership in the selected team, with some routes also allowing `team:admin`
+- Organization-wide records require the resource-specific admin permission such as `llmProviderApiKey:admin` or `llmVirtualKey:admin`
+
+These resources do **not** use `:team-admin`.
+
+### MCP Registry And Installation Records
+
+Some MCP-related resources also apply runtime scope checks in addition to RBAC, but their rules differ from agents, MCP gateways, and LLM proxies:
+
+- Internal MCP catalog items can be `personal`, `team`, or `org`
+- Organization-wide catalog items require `mcpServerInstallation:admin`
+- Team MCP server installations depend on team membership, with broader control for users who have `team:admin`
+
+When designing custom roles, treat the permission matrix as the first gate and the resource's scope rules as the second gate.
 
 
 ## Best Practices

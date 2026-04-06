@@ -2,6 +2,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   getArchestraToolFullName,
+  TOOL_INVOCATION_APPROVAL_REQUIRED_AUTONOMOUS_REASON,
   TOOL_QUERY_KNOWLEDGE_SOURCES_FULL_NAME,
   TOOL_QUERY_KNOWLEDGE_SOURCES_SHORT_NAME,
   TOOL_WHOAMI_SHORT_NAME,
@@ -256,6 +257,66 @@ describe("normalizeJsonSchema", () => {
 });
 
 describe("chat-mcp-client health check", () => {
+  test("expires idle cached conversation clients and closes them on cleanup", async ({
+    makeAgent,
+    makeUser,
+    makeOrganization,
+    makeTeam,
+    makeTeamMember,
+  }) => {
+    vi.useFakeTimers();
+
+    try {
+      const org = await makeOrganization();
+      const user = await makeUser();
+      const team = await makeTeam(org.id, user.id);
+      const agent = await makeAgent({ teams: [team.id] });
+      await makeTeamMember(team.id, user.id);
+      await TeamTokenModel.createTeamToken(team.id, team.name);
+
+      const cacheKey = chatClient.__test.getCacheKey(
+        agent.id,
+        user.id,
+        "conv-1",
+      );
+      chatClient.clearChatMcpClient(agent.id);
+      await chatClient.__test.clearToolCache(cacheKey);
+
+      const expiredClient = {
+        ping: vi.fn(),
+        listTools: vi.fn(),
+        callTool: vi.fn(),
+        close: vi.fn(),
+      };
+
+      chatClient.__test.setCachedClient(
+        cacheKey,
+        expiredClient as unknown as Client,
+        1_000,
+      );
+
+      await vi.advanceTimersByTimeAsync(1_001);
+
+      const tools = await chatClient.getChatMcpTools({
+        agentName: agent.name,
+        agentId: agent.id,
+        userId: user.id,
+        organizationId: org.id,
+        userIsAgentAdmin: false,
+        conversationId: "conv-1",
+      });
+
+      expect(expiredClient.ping).not.toHaveBeenCalled();
+      expect(expiredClient.close).toHaveBeenCalledTimes(1);
+      expect(tools).toEqual({});
+
+      chatClient.clearChatMcpClient(agent.id);
+      await chatClient.__test.clearToolCache(cacheKey);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("discards cached client when ping fails and fetches fresh tools", async ({
     makeAgent,
     makeUser,
@@ -371,12 +432,14 @@ describe("executeMcpTool error handling", () => {
   const baseCtx = {
     toolName: "test_tool",
     toolArguments: {},
-    agentId: "agent-1",
+    agentId: "00000000-0000-4000-8000-000000000001",
     agentName: "Test Agent",
-    userId: "user-1",
-    organizationId: "org-1",
+    userId: "00000000-0000-4000-8000-000000000002",
+    organizationId: "00000000-0000-4000-8000-000000000003",
     userIsAgentAdmin: false,
     mcpGwToken: null,
+    globalToolPolicy: "permissive" as const,
+    considerContextUntrusted: false,
   };
 
   const mockResult = (overrides: Record<string, unknown>) => ({
@@ -530,6 +593,48 @@ describe("executeMcpTool error handling", () => {
         text: 'Expired or invalid authentication for "id-jag test".',
       },
     ]);
+  });
+
+  test("attaches unsafe-context boundary metadata when a tool result is marked untrusted", async ({
+    makeAgent,
+    makeTool,
+    makeTrustedDataPolicy,
+  }) => {
+    const agent = await makeAgent();
+    const tool = await makeTool({ name: "test_tool" });
+
+    vi.mocked(mcpClient.executeToolCall).mockResolvedValueOnce({
+      id: "call-1",
+      name: "test_tool",
+      content: [{ type: "text", text: "ARCH_TEST = secret-value" }],
+      isError: false,
+    } as never);
+
+    await makeTrustedDataPolicy(tool.id, {
+      conditions: [],
+      action: "mark_as_untrusted",
+    });
+
+    const result = await chatClient.__test.executeMcpTool({
+      ...baseCtx,
+      agentId: agent.id,
+      globalToolPolicy: "restrictive",
+    });
+
+    expect(result.unsafeContextBoundary).toMatchObject({
+      kind: "tool_result",
+      reason: "tool_result_marked_untrusted",
+      toolCallId: expect.any(String),
+      toolName: "test_tool",
+    });
+    expect(result._meta).toMatchObject({
+      unsafeContextBoundary: {
+        kind: "tool_result",
+        reason: "tool_result_marked_untrusted",
+        toolCallId: expect.any(String),
+        toolName: "test_tool",
+      },
+    });
   });
 });
 
@@ -1189,7 +1294,7 @@ describe("throwIfApprovalRequired", () => {
 
     await expect(
       throwIfApprovalRequired("restricted-tool", {}, "restrictive"),
-    ).rejects.toThrow("Tool invocation blocked");
+    ).rejects.toThrow(TOOL_INVOCATION_APPROVAL_REQUIRED_AUTONOMOUS_REASON);
   });
 
   test("does not throw when tool is not found in DB", async () => {

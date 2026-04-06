@@ -1,16 +1,3 @@
-import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
-
-/** Extended ClientCapabilities with UI extension support (replaces @mcp-ui/client re-export). */
-type ClientCapabilitiesWithExtensions = ClientCapabilities & {
-  extensions?: Record<string, unknown>;
-};
-
-const UI_EXTENSION_CAPABILITIES = {
-  "io.modelcontextprotocol/ui": {
-    mimeTypes: ["text/html;profile=mcp-app"] as const,
-  },
-} as const;
-
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
@@ -26,13 +13,16 @@ import type {
 import {
   type AuthExpiredMcpToolError,
   type AuthRequiredMcpToolError,
+  MCP_APPS_CLIENT_EXTENSION_CAPABILITIES,
   MCP_CATALOG_INSTALL_PATH,
   MCP_CATALOG_INSTALL_QUERY_PARAM,
   MCP_CATALOG_REAUTH_QUERY_PARAM,
   MCP_CATALOG_SERVER_QUERY_PARAM,
+  MCP_ENTERPRISE_AUTH_EXTENSION_CAPABILITIES,
   MCP_SERVER_TOOL_NAME_SEPARATOR,
   type McpToolError,
   parseFullToolName,
+  TimeInMs,
 } from "@shared";
 import QuickLRU from "quick-lru";
 import { LRUCacheManager } from "@/cache-manager";
@@ -62,9 +52,16 @@ import type {
   MCPGatewayAuthMethod,
   McpToolAssignment,
 } from "@/types";
+import type { ClientCapabilitiesWithExtensions } from "@/types/mcp-capabilities";
 import { deriveAuthMethod } from "@/utils/auth-method";
+import { buildMcpClientInfo } from "@/utils/mcp-client-info";
 import { previewToolResultContent } from "@/utils/tool-result-preview";
 import { K8sAttachTransport } from "./k8s-attach-transport";
+
+const MCP_CLIENT_EXTENSION_CAPABILITIES = {
+  ...MCP_APPS_CLIENT_EXTENSION_CAPABILITIES,
+  ...MCP_ENTERPRISE_AUTH_EXTENSION_CAPABILITIES,
+} as const;
 
 export class McpServerNotReadyError extends Error {
   constructor(message: string) {
@@ -176,6 +173,13 @@ class ConnectionLimiter {
 type TransportKind = "stdio" | "http";
 
 const HTTP_CONCURRENCY_LIMIT = 4;
+// Idle TTL for shared MCP active connections. These clients can retain HTTP
+// session affinity, tool-name caches, and browser-backed remote state, so we
+// want them to age out after inactivity instead of accumulating forever.
+// Fifteen minutes keeps sequential tool calls in an active chat warm while
+// reclaiming abandoned connections on a reasonable operational timescale.
+const ACTIVE_CONNECTION_CACHE_TTL_MS = 15 * TimeInMs.Minute;
+const ACTIVE_CONNECTION_CACHE_MAX_SIZE = 500;
 
 const RESOURCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
 const RESOURCE_CACHE_MAX_SIZE = 1000;
@@ -195,7 +199,21 @@ class McpClient {
   private static readonly ENTERPRISE_CREDENTIAL_CACHE_FALLBACK_TTL_MS = 30_000;
 
   private clients = new Map<string, Client>();
-  private activeConnections = new Map<string, Client>();
+  private activeConnections = new LRUCacheManager<Client>({
+    maxSize: ACTIVE_CONNECTION_CACHE_MAX_SIZE,
+    defaultTtl: ACTIVE_CONNECTION_CACHE_TTL_MS,
+    onEviction: (key: string, value: unknown) => {
+      const client = value as Client;
+      Promise.resolve(client.close()).catch((error) => {
+        logger.warn(
+          { connectionKey: key, error },
+          "Error closing evicted active MCP connection",
+        );
+      });
+      this.toolNameCache.delete(key);
+      this.pendingHttpSessionMetadata.delete(key);
+    },
+  });
   private connectionLimiter = new ConnectionLimiter();
   // Cache of actual tool names per connection key: lowercased name -> original cased name
   private toolNameCache = new LRUCacheManager<Map<string, string>>({
@@ -673,6 +691,7 @@ class McpClient {
           { connectionKey },
           "Client ping successful, reusing cached client",
         );
+        this.activeConnections.set(connectionKey, existingClient);
         return existingClient;
       } catch (error) {
         // Connection is dead, invalidate cache and create fresh client
@@ -703,20 +722,14 @@ class McpClient {
     // Create the client with UI extension capabilities
     const capabilities: ClientCapabilitiesWithExtensions = {
       roots: { listChanged: true },
-      extensions: UI_EXTENSION_CAPABILITIES,
+      extensions: MCP_CLIENT_EXTENSION_CAPABILITIES,
     };
 
     // Create new client
     logger.info({ connectionKey }, "Creating new MCP client");
-    const client = new Client(
-      {
-        name: "archestra-platform",
-        version: "1.0.0",
-      },
-      {
-        capabilities,
-      },
-    );
+    const client = new Client(buildMcpClientInfo("archestra-platform"), {
+      capabilities,
+    });
 
     // Track whether we're using a stored session ID (for stale session cleanup)
     const usedStoredSession =
@@ -1274,12 +1287,17 @@ class McpClient {
         if (enterpriseTransportCredential) {
           localHeaders[enterpriseTransportCredential.headerName] =
             enterpriseTransportCredential.headerValue;
-        } else if (tokenAuth?.isExternalIdp && tokenAuth.rawToken) {
-          localHeaders.Authorization = `Bearer ${tokenAuth.rawToken}`;
         } else if (secrets.access_token) {
+          // Prefer upstream server credentials when available (e.g. GitHub PAT, OAuth token).
+          // This enables JWKS-authenticated users to access servers with their own credentials
+          // rather than propagating the IdP JWT which the upstream server wouldn't understand.
           localHeaders.Authorization = `Bearer ${secrets.access_token}`;
         } else if (secrets.raw_access_token) {
           localHeaders.Authorization = String(secrets.raw_access_token);
+        } else if (tokenAuth?.isExternalIdp && tokenAuth.rawToken) {
+          // Fallback: propagate external IdP JWT for end-to-end JWKS pattern
+          // (upstream server validates the same JWT against the IdP's JWKS)
+          localHeaders.Authorization = `Bearer ${tokenAuth.rawToken}`;
         }
 
         return new StreamableHTTPClientTransport(new URL(endpointUrl), {
@@ -1297,13 +1315,17 @@ class McpClient {
         if (enterpriseTransportCredential) {
           headers[enterpriseTransportCredential.headerName] =
             enterpriseTransportCredential.headerValue;
-        } else if (tokenAuth?.isExternalIdp && tokenAuth.rawToken) {
-          // Propagate external IdP JWT to the underlying MCP server
-          headers.Authorization = `Bearer ${tokenAuth.rawToken}`;
         } else if (secrets.access_token) {
+          // Prefer upstream server credentials when available (e.g. GitHub PAT, OAuth token).
+          // This enables JWKS-authenticated users to access servers with their own credentials
+          // rather than propagating the IdP JWT which the upstream server wouldn't understand.
           headers.Authorization = `Bearer ${secrets.access_token}`;
         } else if (secrets.raw_access_token) {
           headers.Authorization = String(secrets.raw_access_token);
+        } else if (tokenAuth?.isExternalIdp && tokenAuth.rawToken) {
+          // Fallback: propagate external IdP JWT for end-to-end JWKS pattern
+          // (upstream server validates the same JWT against the IdP's JWKS)
+          headers.Authorization = `Bearer ${tokenAuth.rawToken}`;
         }
 
         return new StreamableHTTPClientTransport(
@@ -1829,19 +1851,13 @@ class McpClient {
 
         const capabilities: ClientCapabilitiesWithExtensions = {
           roots: { listChanged: true },
-          extensions: UI_EXTENSION_CAPABILITIES,
+          extensions: MCP_CLIENT_EXTENSION_CAPABILITIES,
         };
 
         // Create client with transport
-        const client = new Client(
-          {
-            name: "archestra-platform",
-            version: "1.0.0",
-          },
-          {
-            capabilities,
-          },
-        );
+        const client = new Client(buildMcpClientInfo("archestra-platform"), {
+          capabilities,
+        });
 
         // Connect with timeout
         await this.raceWithTimeout(
@@ -1915,10 +1931,9 @@ class McpClient {
       secrets,
     );
 
-    const client = new Client(
-      { name: "archestra-inspector", version: "1.0.0" },
-      { capabilities: {} },
-    );
+    const client = new Client(buildMcpClientInfo("archestra-inspector"), {
+      capabilities: {},
+    });
 
     try {
       await this.raceWithTimeout(
@@ -1976,8 +1991,13 @@ class McpClient {
 
     // Also disconnect active connections
     const activeDisconnectPromises = Array.from(
-      this.activeConnections.values(),
-    ).map(async (client) => {
+      this.activeConnections.keys(),
+    ).map(async (connectionKey) => {
+      const client = this.activeConnections.get(connectionKey);
+      if (!client) {
+        return;
+      }
+
       try {
         await client.close();
       } catch (error) {
