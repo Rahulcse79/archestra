@@ -110,6 +110,31 @@ RUN apk --no-cache upgrade && \
     # Clean up
     rm -rf /tmp/*
 
+# Install k3d and Docker CLI for embedded K8s cluster support (quickstart mode)
+ARG K3D_VERSION=5.8.3
+ARG DOCKER_CLI_VERSION=29.3.1
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        K3D_ARCH="amd64"; \
+        K3D_SHA256="dbaa79a76ace7f4ca230a1ff41dc7d8a5036a8ad0309e9c54f9bf3836dbe853e"; \
+        DOCKER_ARCH="x86_64"; \
+        DOCKER_SHA256="653965a027971307147c1164d44ca96e61c714e7a924a2a9fcba22ca037728cf"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        K3D_ARCH="arm64"; \
+        K3D_SHA256="0b8110f2229631af7402fb828259330985918b08fefd38b7f1b788a1c8687216"; \
+        DOCKER_ARCH="aarch64"; \
+        DOCKER_SHA256="847584cec43ec05bfb0485824f3f3d458dd57cd287017c672b8a9ccdede34c58"; \
+    else \
+        echo "ERROR: Unsupported architecture: $ARCH"; exit 1; \
+    fi && \
+    wget -qO /usr/local/bin/k3d "https://github.com/k3d-io/k3d/releases/download/v${K3D_VERSION}/k3d-linux-${K3D_ARCH}" && \
+    echo "${K3D_SHA256}  /usr/local/bin/k3d" | sha256sum -c - && \
+    chmod +x /usr/local/bin/k3d && \
+    wget -qO /tmp/docker.tgz "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" && \
+    echo "${DOCKER_SHA256}  /tmp/docker.tgz" | sha256sum -c - && \
+    tar -xzf /tmp/docker.tgz -C /usr/local/bin --strip-components=1 docker/docker && \
+    rm -f /tmp/docker.tgz
+
 RUN apk add --no-cache supervisor && \
     # CVE-2026-24049: wheel path traversal — not needed at runtime, remove entirely
     pip uninstall -y wheel 2>/dev/null; rm -rf /usr/lib/python*/ensurepip

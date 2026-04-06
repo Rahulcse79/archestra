@@ -4,14 +4,14 @@ set -e
 # Runtime initialization for the unified platform image.
 # This script:
 # - bootstraps a persistent auth secret when one is not provided
-# - optionally provisions and wires up an embedded KinD cluster for quickstart mode
+# - optionally provisions and wires up an embedded k3d cluster for quickstart mode
 # - initializes or upgrades the bundled PostgreSQL data directory when using the internal DB
 # - injects the resolved DATABASE_URL and optional ngrok programs into supervisord config
 # - starts supervisord in the background so container signals can trigger graceful cleanup
-# - tears down the embedded KinD cluster on shutdown when this container created it
+# - tears down the embedded k3d cluster on shutdown when this container created it
 
-# Track if we created a KinD cluster for cleanup
-KIND_CLUSTER=""
+# Track if we created a k3d cluster for cleanup
+K3D_CLUSTER=""
 # Track supervisord PID for cleanup
 SUPERVISOR_PID=""
 
@@ -23,20 +23,20 @@ cleanup() {
 
     echo "Shutting down..."
 
-    # Stop supervisord gracefully before cleaning up KinD cluster
+    # Stop supervisord gracefully before cleaning up k3d cluster
     if [ -n "$SUPERVISOR_PID" ] && kill -0 "$SUPERVISOR_PID" 2>/dev/null; then
         echo "Stopping services..."
         kill -TERM "$SUPERVISOR_PID" 2>/dev/null || true
         wait "$SUPERVISOR_PID" 2>/dev/null || true
     fi
 
-    # Delete KinD cluster if we created one in quickstart mode
-    if [ -n "$KIND_CLUSTER" ]; then
-        echo "Deleting KinD cluster '${KIND_CLUSTER}'..."
-        if kind delete cluster --name "${KIND_CLUSTER}" 2>/dev/null; then
-            echo "KinD cluster deleted successfully"
+    # Delete k3d cluster if we created one in quickstart mode
+    if [ -n "$K3D_CLUSTER" ]; then
+        echo "Deleting k3d cluster '${K3D_CLUSTER}'..."
+        if k3d cluster delete "${K3D_CLUSTER}" 2>/dev/null; then
+            echo "k3d cluster deleted successfully"
         else
-            echo "Warning: Failed to delete KinD cluster"
+            echo "Warning: Failed to delete k3d cluster"
         fi
     fi
 
@@ -69,7 +69,7 @@ fi
 # For production, use external Kubernetes clusters without mounting the Docker socket.
 if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
     echo "ARCHESTRA_QUICKSTART=true detected"
-    echo "Quickstart mode enabled - initializing embedded KinD cluster..."
+    echo "Quickstart mode enabled - initializing embedded k3d cluster..."
 
     if [ ! -S /var/run/docker.sock ]; then
         echo "Quickstart mode is on but Docker socket is not mounted"
@@ -78,69 +78,18 @@ if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
     fi
     echo "WARNING: Docker socket mounted - this mode is for development only, not for production use."
 
-    # Download KinD and Docker CLI on demand (not baked into the image to avoid
-    # shipping Go stdlib/dependency CVEs in the Docker image scan).
-    # Binaries are persisted to /app/data so they survive container restarts.
-    BIN_DIR="/app/data/.bin"
-    mkdir -p "$BIN_DIR"
-    export PATH="$BIN_DIR:$PATH"
-
-    KIND_VERSION="0.31.0"
-    DOCKER_VERSION="29.3.1"
-
-    if [ ! -x "$BIN_DIR/kind" ]; then
-        echo "Downloading KinD v${KIND_VERSION}..."
-        ARCH=$(uname -m)
-        if [ "$ARCH" = "x86_64" ]; then
-            KIND_ARCH="amd64"
-            KIND_SHA256="eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
-        elif [ "$ARCH" = "aarch64" ]; then
-            KIND_ARCH="arm64"
-            KIND_SHA256="8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4"
-        else
-            echo "ERROR: Unsupported architecture: $ARCH"; exit 1
-        fi
-        wget -qO "$BIN_DIR/kind" "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-${KIND_ARCH}"
-        echo "${KIND_SHA256}  $BIN_DIR/kind" | sha256sum -c - || { echo "ERROR: KinD checksum mismatch"; rm -f "$BIN_DIR/kind"; exit 1; }
-        chmod +x "$BIN_DIR/kind"
-        echo "KinD v${KIND_VERSION} installed"
-    fi
-
-    if [ ! -x "$BIN_DIR/docker" ]; then
-        echo "Downloading Docker CLI v${DOCKER_VERSION}..."
-        ARCH=$(uname -m)
-        if [ "$ARCH" = "x86_64" ]; then
-            DOCKER_ARCH="x86_64"
-            DOCKER_SHA256="653965a027971307147c1164d44ca96e61c714e7a924a2a9fcba22ca037728cf"
-        elif [ "$ARCH" = "aarch64" ]; then
-            DOCKER_ARCH="aarch64"
-            DOCKER_SHA256="847584cec43ec05bfb0485824f3f3d458dd57cd287017c672b8a9ccdede34c58"
-        else
-            echo "ERROR: Unsupported architecture: $ARCH"; exit 1
-        fi
-        wget -qO /tmp/docker.tgz "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz"
-        echo "${DOCKER_SHA256}  /tmp/docker.tgz" | sha256sum -c - || { echo "ERROR: Docker checksum mismatch"; rm -f /tmp/docker.tgz; exit 1; }
-        tar -xzf /tmp/docker.tgz -C "$BIN_DIR" --strip-components=1 docker/docker
-        rm -f /tmp/docker.tgz
-        echo "Docker CLI v${DOCKER_VERSION} installed"
-    fi
-
-    # Quickstart mode always uses embedded KinD cluster
+    # Quickstart mode always uses embedded k3d cluster
     CLUSTER_NAME="archestra-mcp"
     KUBECONFIG_PATH="/app/data/.kubeconfig"
-    # Pin a known-good node image to avoid compatibility issues with newer K8s versions.
-    # Must match a version supported by the KinD binary version downloaded above.
-    # See: https://github.com/kubernetes-sigs/kind/releases/tag/v${KIND_VERSION}
-    KIND_NODE_IMAGE="kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48"
 
     # Check if cluster already exists
-    if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
-        echo "KinD cluster '${CLUSTER_NAME}' already exists"
+    if k3d cluster get "${CLUSTER_NAME}" >/dev/null 2>&1; then
+        echo "k3d cluster '${CLUSTER_NAME}' already exists"
     else
-        echo "Creating KinD cluster '${CLUSTER_NAME}'..."
-        if ! kind create cluster --name "${CLUSTER_NAME}" --image "${KIND_NODE_IMAGE}" --wait 120s; then
+        echo "Creating k3d cluster '${CLUSTER_NAME}'..."
+        if ! k3d cluster create "${CLUSTER_NAME}" --no-lb --wait --timeout 120s; then
             echo ""
-            echo "=== KinD cluster creation failed ==="
+            echo "=== k3d cluster creation failed ==="
             echo ""
 
             # Detect Docker environment
@@ -179,43 +128,40 @@ if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
             fi
             echo ""
             echo "NOTE: You do NOT need to enable Kubernetes in Docker Desktop settings."
-            echo "      Archestra uses KinD (Kubernetes in Docker) which manages its own cluster."
+            echo "      Archestra uses k3d (k3s in Docker) which manages its own cluster."
             echo ""
             echo "For help: https://github.com/archestra-ai/archestra/issues"
 
             exit 1
         fi
-        echo "KinD cluster created successfully"
+        echo "k3d cluster created successfully"
         # Mark for cleanup on shutdown
-        KIND_CLUSTER="${CLUSTER_NAME}"
+        K3D_CLUSTER="${CLUSTER_NAME}"
     fi
 
     # Export kubeconfig
-    if ! kind export kubeconfig --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG_PATH}"; then
-        echo "ERROR: Failed to export kubeconfig for KinD cluster"
+    K3D_NETWORK="k3d-${CLUSTER_NAME}"
+    if ! k3d kubeconfig get "${CLUSTER_NAME}" > "${KUBECONFIG_PATH}"; then
+        echo "ERROR: Failed to export kubeconfig for k3d cluster"
         exit 1
     fi
     chmod 600 "${KUBECONFIG_PATH}"
 
-    # Get the KinD control plane container IP address
-    CONTROL_PLANE_CONTAINER="${CLUSTER_NAME}-control-plane"
-    CONTROL_PLANE_IP=$(docker inspect -f '{{with index .NetworkSettings.Networks "kind"}}{{.IPAddress}}{{end}}' "${CONTROL_PLANE_CONTAINER}")
+    # Get the k3d server container IP address
+    CONTROL_PLANE_CONTAINER="k3d-${CLUSTER_NAME}-server-0"
+    CONTROL_PLANE_IP=$(docker inspect -f "{{with index .NetworkSettings.Networks \"${K3D_NETWORK}\"}}{{.IPAddress}}{{end}}" "${CONTROL_PLANE_CONTAINER}")
 
     if [ -z "$CONTROL_PLANE_IP" ]; then
-        echo "ERROR: Could not get KinD control plane IP address"
+        echo "ERROR: Could not get k3d server IP address"
         exit 1
     else
-        echo "KinD control plane IP: ${CONTROL_PLANE_IP}"
+        echo "k3d server IP: ${CONTROL_PLANE_IP}"
 
-        # Update kubeconfig to use control plane IP and skip TLS verification
-        # TLS verification is disabled here because:
-        # 1. This is ONLY for local development with embedded KinD cluster
-        # 2. Traffic never leaves the host machine (container-to-container communication)
-        # 3. The certificate is for localhost/127.0.0.1, not the container IP we're using
-        # 4. Production deployments use external K8s clusters with proper TLS certificates
-        # Use targeted approach to avoid duplicates and only modify KinD cluster entries
+        # Update kubeconfig to use server container IP and skip TLS verification
+        # TLS verification is disabled because this is local-only dev traffic
+        # and the certificate doesn't cover the container IP we're using.
         cat "${KUBECONFIG_PATH}" | \
-            sed "s|server: https://127.0.0.1:[0-9][0-9]*|server: https://${CONTROL_PLANE_IP}:6443|g" | \
+            sed "s|server: https://[0-9.]*:[0-9][0-9]*|server: https://${CONTROL_PLANE_IP}:6443|g" | \
             awk '
                 /^    server: https:\/\/.*:6443$/ {
                     print
@@ -231,23 +177,23 @@ if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
         mv "${KUBECONFIG_PATH}.tmp" "${KUBECONFIG_PATH}"
         chmod 600 "${KUBECONFIG_PATH}"
 
-        # Connect this container to the KinD network for direct communication
+        # Connect this container to the k3d network for direct communication
         # SECURITY WARNING: This grants the container privileged access to manipulate
         # host Docker networks. This is acceptable ONLY for local development.
         CONTAINER_ID=$(hostname)
-        if ! docker network inspect kind >/dev/null 2>&1; then
-            echo "WARNING: KinD network not found"
+        if ! docker network inspect "${K3D_NETWORK}" >/dev/null 2>&1; then
+            echo "WARNING: k3d network '${K3D_NETWORK}' not found"
         else
-            # Check if already connected to kind network
-            if docker inspect "$CONTAINER_ID" -f '{{range $net, $v := .NetworkSettings.Networks}}{{$net}} {{end}}' 2>/dev/null | grep -q "kind"; then
-                echo "Container already connected to KinD network"
+            # Check if already connected to k3d network
+            if docker inspect "$CONTAINER_ID" -f '{{range $net, $v := .NetworkSettings.Networks}}{{$net}} {{end}}' 2>/dev/null | grep -q "${K3D_NETWORK}"; then
+                echo "Container already connected to k3d network"
             else
-                echo "Connecting container to KinD network..."
-                if ! docker network connect kind "$CONTAINER_ID"; then
-                    echo "ERROR: Failed to connect container to KinD network"
+                echo "Connecting container to k3d network..."
+                if ! docker network connect "${K3D_NETWORK}" "$CONTAINER_ID"; then
+                    echo "ERROR: Failed to connect container to k3d network"
                     exit 1
                 fi
-                echo "Connected to KinD network successfully"
+                echo "Connected to k3d network successfully"
             fi
         fi
 
@@ -255,7 +201,7 @@ if [ "$ARCHESTRA_QUICKSTART" = "true" ]; then
         export ARCHESTRA_ORCHESTRATOR_KUBECONFIG="${KUBECONFIG_PATH}"
         export ARCHESTRA_ORCHESTRATOR_K8S_NAMESPACE="${ARCHESTRA_ORCHESTRATOR_K8S_NAMESPACE:-default}"
         export ARCHESTRA_ORCHESTRATOR_K8S_NODE_HOST="${CONTROL_PLANE_IP}"
-        echo "Kubernetes orchestrator configured with embedded KinD cluster"
+        echo "Kubernetes orchestrator configured with embedded k3d cluster"
     fi
 fi
 
