@@ -232,13 +232,19 @@ const organizationRoutes: FastifyPluginAsyncZod = async (fastify) => {
         );
       }
 
-      // Validate embedding API key exists
+      // Validate embedding API key exists and uses a compatible provider
       if (body.embeddingChatApiKeyId) {
         const chatApiKey = await LlmProviderApiKeyModel.findById(
           body.embeddingChatApiKeyId,
         );
         if (!chatApiKey) {
           throw new ApiError(404, "Embedding API key not found");
+        }
+        if (chatApiKey.provider === "anthropic") {
+          throw new ApiError(
+            400,
+            "Embedding API key must use a compatible provider (OpenAI or Ollama). Anthropic does not support embeddings.",
+          );
         }
       }
 

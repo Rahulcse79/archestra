@@ -195,14 +195,22 @@ describe("organization routes", () => {
       makeSecret,
       makeLlmProviderApiKey,
     }) => {
-      // Create an OpenAI API key for embedding
-      const secret = await makeSecret();
+      // Seed the embedding model so the route's model validation passes
+      await ModelModel.create({
+        externalId: "openai/text-embedding-3-small",
+        provider: "openai",
+        modelId: "text-embedding-3-small",
+        embeddingDimensions: 1536,
+      });
+
+      // Create an OpenAI API key for embedding (secret must use apiKey format)
+      const secret = await makeSecret({ secret: { apiKey: "sk-test-key" } });
       const apiKey = await makeLlmProviderApiKey(organizationId, secret.id, {
         provider: "openai",
       });
 
       // Lock: set both key and model
-      await app.inject({
+      const lockResponse = await app.inject({
         method: "PATCH",
         url: "/api/organization/knowledge-settings",
         payload: {
@@ -210,6 +218,7 @@ describe("organization routes", () => {
           embeddingModel: "text-embedding-3-small",
         },
       });
+      expect(lockResponse.statusCode).toBe(200);
 
       // Try to change model — should be rejected
       const changeResponse = await app.inject({
@@ -249,7 +258,7 @@ describe("organization routes", () => {
 
       expect(response.statusCode).toBe(400);
       expect(response.json().error.message).toContain(
-        "Embedding API key must use a compatible provider (OpenAI or Ollama)",
+        "Embedding API key must use a compatible provider",
       );
     });
 
