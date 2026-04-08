@@ -336,14 +336,14 @@ jobs:
             artifact: blob-report-ui-identity-providers
           # Firefox tests - run sequentially to avoid race conditions on shared backend state
           - name: UI Firefox
-            runner: blacksmith-16vcpu-ubuntu-2404
+            runner: blacksmith-8vcpu-ubuntu-2404
             projects: firefox
             shard: ""
             extra_args: "--grep '@firefox' --workers=1"
             artifact: blob-report-ui-firefox
           # Webkit tests - run sequentially to avoid race conditions on shared backend state
           - name: UI Webkit
-            runner: blacksmith-16vcpu-ubuntu-2404
+            runner: blacksmith-8vcpu-ubuntu-2404
             projects: webkit
             shard: ""
             extra_args: "--grep '@webkit' --workers=1"
