@@ -1,5 +1,8 @@
 name: Platform E2E Tests (On Demand)
 
+# On-demand E2E: add the "run-e2e" label to a PR to trigger the full E2E suite.
+# Runs natively on the PR branch with full secrets. Remove and re-add the label
+# to re-trigger after new commits.
 on:
   pull_request:
     types:
