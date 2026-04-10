@@ -141,6 +141,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read # Required to checkout the repository and diff dependency manifests.
@@ -153,7 +154,6 @@ jobs:
           fetch-depth: 0
 
       - name: Dependency review
-        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: high
@@ -162,8 +162,13 @@ jobs:
           license-check: false
           comment-summary-in-pr: on-failure
 
+  dependency-review-merge-group:
+    name: Dependency Review
+    if: ${{ github.event_name == 'merge_group' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions: {}
+    steps:
       - name: Skip dependency review for merge queue
-        if: ${{ github.event_name == 'merge_group' }}
         run: echo "Dependency Review only has PR diff context; PR run already validated dependencies before merge queue."
 
   # Fast feedback on every PR push: lint + typecheck + unit tests.
@@ -192,10 +197,10 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
 
       - name: Checkout project
+        if: ${{ steps.check-release-please.outputs.is-release-please != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ steps.check-release-please.outputs.is-release-please == 'true' && github.head_ref || '' }}
           fetch-depth: 1
 
       # Generate a GitHub App token for release-please PRs so pushed generated
@@ -242,8 +247,11 @@ jobs:
           pnpm lint:fix
 
           # Check for codegen changes
-          if ! git diff --exit-code || ! git diff --cached --exit-code; then
+          if ! git -C "$GITHUB_WORKSPACE" diff --exit-code -- docs/ platform/ || ! git -C "$GITHUB_WORKSPACE" diff --cached --exit-code -- docs/ platform/; then
             if [ "$IS_RELEASE_PLEASE_PR" = "true" ]; then
+              echo "Waiting for drizzle-kit check before auto-committing generated changes..."
+              wait $DRIZZLE_PID
+
               echo "Release-please PR with generated changes detected. Auto-committing..."
               git config user.name "github-actions[bot]"
               git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -254,7 +262,7 @@ jobs:
               exit 0
             else
               echo "::error::Codegen produced changes. Please run 'pnpm codegen && pnpm lint:fix' locally and commit the results."
-              git diff --stat
+              git -C "$GITHUB_WORKSPACE" diff --stat -- docs/ platform/
               exit 1
             fi
           fi

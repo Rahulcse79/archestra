@@ -141,7 +141,7 @@ jobs:
   platform-e2e-tests:
     name: Platform E2E Tests (${{ matrix.name }})
     needs: [platform-e2e-build]
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e' }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read # Required to checkout the repository and read test assets.
@@ -293,7 +293,7 @@ jobs:
   platform-quickstart-e2e-tests:
     name: Platform E2E Tests (Quickstart)
     needs: [platform-e2e-build]
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     permissions:
       contents: read # Required to checkout the repository and read test assets.
@@ -481,7 +481,7 @@ jobs:
   platform-vault-k8s-e2e-tests:
     name: Platform E2E Tests (Vault K8s)
     needs: [platform-e2e-build]
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     permissions:
       contents: read # Required to checkout the repository and read Helm assets.
@@ -597,7 +597,7 @@ jobs:
         platform-quickstart-e2e-tests,
         platform-vault-k8s-e2e-tests,
       ]
-    if: ${{ always() && !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e') }}
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || github.event.label.name == 'run-e2e') }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read # Required to checkout the repository and merge Playwright reports.
