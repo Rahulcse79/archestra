@@ -344,6 +344,7 @@ const authRoutes: FastifyPluginAsyncZod = async (fastify) => {
       const responseBody = await applyMcpOauthTokenLifetimeToResponse({
         response,
         resource,
+        tokenEndpointOrigin: url.origin,
       });
 
       reply.status(response.status);
@@ -610,6 +611,7 @@ function shouldSkipForwardedAuthHeader(headerName: string): boolean {
 async function applyMcpOauthTokenLifetimeToResponse(params: {
   response: Response;
   resource: unknown;
+  tokenEndpointOrigin: string;
 }): Promise<string | null> {
   if (!params.response.body) {
     return null;
@@ -639,6 +641,7 @@ async function applyMcpOauthTokenLifetimeToResponse(params: {
   const lifetimeSeconds = await getMcpOauthAccessTokenLifetimeSeconds({
     resource: params.resource,
     referenceId: storedToken?.referenceId,
+    tokenEndpointOrigin: params.tokenEndpointOrigin,
   });
   if (!storedToken || !lifetimeSeconds) {
     return responseText;
@@ -664,10 +667,13 @@ async function applyMcpOauthTokenLifetimeToResponse(params: {
 async function getMcpOauthAccessTokenLifetimeSeconds(params: {
   resource: unknown;
   referenceId: string | null | undefined;
+  tokenEndpointOrigin: string;
 }): Promise<number | null> {
   const profileId =
-    getProfileIdFromResource(params.resource) ??
-    getProfileIdFromReferenceId(params.referenceId);
+    getProfileIdFromResource({
+      resource: params.resource,
+      tokenEndpointOrigin: params.tokenEndpointOrigin,
+    }) ?? getProfileIdFromReferenceId(params.referenceId);
   if (!profileId) {
     return null;
   }
@@ -719,12 +725,32 @@ function getIssuedAtSeconds(tokenBody: Record<string, unknown>): number {
   return Math.floor(Date.now() / 1000);
 }
 
-function getProfileIdFromResource(resource: unknown): string | null {
-  if (typeof resource !== "string") {
+function getProfileIdFromResource(params: {
+  resource: unknown;
+  tokenEndpointOrigin: string;
+}): string | null {
+  if (typeof params.resource !== "string") {
     return null;
   }
 
-  return extractProfileIdFromMcpResource(resource);
+  const profileIdFromIssuerResource = extractProfileIdFromMcpResource(
+    params.resource,
+  );
+  if (profileIdFromIssuerResource) {
+    return profileIdFromIssuerResource;
+  }
+
+  try {
+    const resourceUrl = new URL(params.resource);
+    if (resourceUrl.origin !== params.tokenEndpointOrigin) {
+      return null;
+    }
+
+    const match = resourceUrl.pathname.match(/^\/v1\/mcp\/([0-9a-f-]{36})$/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function getProfileIdFromReferenceId(
