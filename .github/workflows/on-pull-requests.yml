@@ -163,6 +163,7 @@ jobs:
     steps:
       - name: Check if this is a release-please PR
         id: check-release-please
+        working-directory: .
         run: |
           if [[ "$HEAD_REF" == release-please--* ]]; then
             echo "is-release-please=true" >> "$GITHUB_OUTPUT"
