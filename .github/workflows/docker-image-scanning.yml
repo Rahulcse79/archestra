@@ -2,6 +2,7 @@ name: Docker Image Scanning
 
 # Runs automatically in merge queue and on demand when the "run-docker-scan"
 # label is added to a PR.
+# Remove and re-add the label to re-trigger after new commits.
 on:
   pull_request:
     types:
@@ -38,6 +39,12 @@ jobs:
             local-tag-prefix: mcp-server-base
             use-build-action: false
     steps:
+      - name: Reject fork PR scan requests
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true }}
+        run: |
+          echo "::error::Docker image scanning requires repository secrets and cannot run for fork PRs."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -77,7 +84,6 @@ jobs:
           tags: ${{ format('{0}:{1}', matrix.local-tag-prefix, github.sha) }}
 
       - name: Scan image for CVEs
-        if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true) }}
         uses: ./.github/actions/scan-docker-image
         with:
           image: ${{ format('{0}:{1}', matrix.local-tag-prefix, github.sha) }}
