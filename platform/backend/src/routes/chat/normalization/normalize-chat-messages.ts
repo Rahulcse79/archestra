@@ -4,9 +4,11 @@ import type { ChatMessage, ChatMessagePart } from "@/types";
 import { stripImagesFromMessages } from "./strip-images-from-messages";
 
 export function normalizeChatMessages(messages: ChatMessage[]): ChatMessage[] {
-  return stripImagesFromMessages(
+  const normalized = stripImagesFromMessages(
     stripDanglingToolCallsFromMessages(dedupeToolPartsFromMessages(messages)),
   );
+
+  return filterEmptyMessages(normalized);
 }
 
 function dedupeToolPartsFromMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -106,4 +108,26 @@ function getToolPartSignature(part: NonNullable<ChatMessage["parts"]>[number]) {
 }
 function getToolPartState(part: ChatMessagePart) {
   return typeof part.state === "string" ? part.state : "unknown";
+}
+
+/**
+ * Remove messages whose parts array became empty after normalization.
+ *
+ * `stripDanglingToolCalls` can strip every part from an assistant message
+ * when all its tool-call parts were dangling (no matching tool-result).
+ * Sending a message with an empty content array to the LLM provider causes
+ * a 400 error (e.g. Bedrock Converse "content field is empty").
+ */
+function filterEmptyMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) => {
+    if (!message.parts || message.parts.length > 0) {
+      return true;
+    }
+
+    logger.warn(
+      { messageId: message.id, role: message.role },
+      "[normalizeChatMessages] Dropping message with empty parts",
+    );
+    return false;
+  });
 }

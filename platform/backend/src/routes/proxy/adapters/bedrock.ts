@@ -511,6 +511,25 @@ class BedrockRequestAdapter
       messages = this.applyUpdates(messages, this.toolResultUpdates);
     }
 
+    // Filter out messages with empty content arrays — Bedrock Converse API
+    // rejects them with "The content field in the Message object is empty".
+    // This can happen when upstream normalization (e.g. stripDanglingToolCalls)
+    // removes all content blocks from a message.
+    const originalCount = messages.length;
+    messages = messages.filter(
+      (msg) => Array.isArray(msg.content) && msg.content.length > 0,
+    );
+    if (messages.length < originalCount) {
+      logger.warn(
+        {
+          originalCount,
+          filteredCount: messages.length,
+          removedCount: originalCount - messages.length,
+        },
+        "[BedrockAdapter] Filtered out messages with empty content",
+      );
+    }
+
     return {
       ...this.request,
       modelId: this.getModel(),

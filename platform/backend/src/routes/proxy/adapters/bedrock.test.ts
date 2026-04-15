@@ -34,6 +34,68 @@ function asStreamChunk<T>(chunk: unknown): T {
   return chunk as T;
 }
 
+describe("Bedrock empty content filtering", () => {
+  test("filters out messages with empty content arrays", () => {
+    const request = createConverseRequest({
+      messages: [
+        { role: "user", content: [{ text: "Do something" }] },
+        { role: "assistant", content: [] },
+        { role: "user", content: [{ text: "What happened?" }] },
+      ],
+    });
+
+    const adapter = bedrockAdapterFactory.createRequestAdapter(request);
+    const result = adapter.toProviderRequest();
+
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages![0]).toMatchObject({
+      role: "user",
+      content: [{ text: "Do something" }],
+    });
+    expect(result.messages![1]).toMatchObject({
+      role: "user",
+      content: [{ text: "What happened?" }],
+    });
+  });
+
+  test("keeps messages with non-empty content", () => {
+    const request = createConverseRequest({
+      messages: [
+        { role: "user", content: [{ text: "Hello" }] },
+        { role: "assistant", content: [{ text: "Hi there!" }] },
+      ],
+    });
+
+    const adapter = bedrockAdapterFactory.createRequestAdapter(request);
+    const result = adapter.toProviderRequest();
+
+    expect(result.messages).toHaveLength(2);
+  });
+
+  test("filters out assistant message whose only toolUse was removed upstream", () => {
+    const request = createConverseRequest({
+      messages: [
+        { role: "user", content: [{ text: "Run a query" }] },
+        { role: "assistant", content: [] as Bedrock.Types.ContentBlock[] },
+        {
+          role: "user",
+          content: [{ text: "That didn't work, try again" }],
+        },
+        {
+          role: "assistant",
+          content: [{ text: "Sure, let me try a different approach." }],
+        },
+      ],
+    });
+
+    const adapter = bedrockAdapterFactory.createRequestAdapter(request);
+    const result = adapter.toProviderRequest();
+
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages!.every((m) => m.content!.length > 0)).toBe(true);
+  });
+});
+
 describe("Bedrock tool name encoding", () => {
   test("shortens provider-facing tool names that exceed the Bedrock limit", () => {
     const toolName =

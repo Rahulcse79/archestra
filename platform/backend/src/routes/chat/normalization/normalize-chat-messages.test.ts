@@ -49,6 +49,66 @@ describe("normalizeChatMessages", () => {
     ).toHaveLength(1);
   });
 
+  test("drops assistant messages left empty after stripping dangling tool calls", () => {
+    const messages = [
+      {
+        id: "msg1",
+        role: "user" as const,
+        parts: [{ type: "text", text: "Do something" }],
+      },
+      {
+        id: "msg2",
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "tool-call",
+            toolCallId: "dangling_call_1",
+            toolName: "some_tool",
+            state: "input-available",
+            args: {},
+          },
+        ],
+      },
+      {
+        id: "msg3",
+        role: "user" as const,
+        parts: [{ type: "text", text: "What happened?" }],
+      },
+    ];
+
+    const result = normalizeChatMessages(messages);
+
+    // The assistant message with only a dangling tool call should be removed
+    expect(result).toHaveLength(2);
+    expect(result.map((m) => m.id)).toEqual(["msg1", "msg3"]);
+  });
+
+  test("keeps assistant messages with remaining parts after stripping dangling tool calls", () => {
+    const messages = [
+      {
+        id: "msg1",
+        role: "assistant" as const,
+        parts: [
+          { type: "text", text: "I'll use a tool." },
+          {
+            type: "tool-call",
+            toolCallId: "dangling_call_1",
+            toolName: "some_tool",
+            state: "input-available",
+            args: {},
+          },
+        ],
+      },
+    ];
+
+    const result = normalizeChatMessages(messages);
+
+    // The message should remain because it still has the text part
+    expect(result).toHaveLength(1);
+    expect(result[0].parts).toHaveLength(1);
+    expect(result[0].parts![0]).toMatchObject({ type: "text" });
+  });
+
   test("preserves distinct tool parts when toolCallIds differ", () => {
     const messages = [
       {
