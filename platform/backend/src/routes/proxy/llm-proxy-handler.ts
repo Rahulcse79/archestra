@@ -270,11 +270,11 @@ export async function handleLLMProxy<
     apiKey = provider.extractApiKey(headers);
   }
 
-  // 3. Resolve platform-managed virtual API keys
-  // Strip "Bearer " prefix if present — OpenAI's extractApiKey returns the full
-  // Authorization header value (e.g. "Bearer arch_xxx"), while other providers
-  // return the raw key.
-  const rawApiKey = apiKey?.replace(/^Bearer\s+/i, "") ?? undefined;
+  // 3. Resolve platform-managed virtual API keys.
+  // Some adapters return a standard "Bearer <token>" value while Anthropic uses
+  // a "Bearer:<token>" sentinel so downstream client creation can distinguish
+  // auth tokens from raw API keys. Normalize both forms before virtual-key lookup.
+  const rawApiKey = normalizeVirtualKeyCandidate(apiKey);
   if (
     !wasJwksAuthenticated &&
     rawApiKey &&
@@ -355,6 +355,7 @@ export async function handleLLMProxy<
     // Cost optimization - potentially switch to cheaper model
     const baselineModel = requestAdapter.getModel();
     const hasTools = requestAdapter.hasTools();
+    const tools = requestAdapter.getTools();
     // Cast messages since getOptimizedModel expects specific provider types
     // but our generic adapter provides the correct type at runtime
     const optimizedModel = await utils.costOptimization.getOptimizedModel(
@@ -366,6 +367,7 @@ export async function handleLLMProxy<
         typeof utils.costOptimization.getOptimizedModel
       >[2],
       hasTools,
+      tools,
     );
 
     if (optimizedModel) {
@@ -1296,4 +1298,14 @@ async function handleNonStreaming<
   }
 
   return reply.send(responseAdapter.getOriginalResponse());
+}
+
+function normalizeVirtualKeyCandidate(
+  apiKey: string | undefined,
+): string | undefined {
+  if (!apiKey) {
+    return undefined;
+  }
+
+  return apiKey.replace(/^Bearer[:\s]+/i, "");
 }
