@@ -63,7 +63,9 @@ vi.mock("@/components/chat/editable-user-message", () => ({
 }));
 
 vi.mock("@/components/chat/inline-chat-error", () => ({
-  InlineChatError: () => null,
+  InlineChatError: ({ error }: { error: Error }) => (
+    <div>inline-chat-error:{error.message}</div>
+  ),
 }));
 
 vi.mock("@/components/chat/mcp-install-dialogs", () => ({
@@ -701,6 +703,40 @@ describe("ChatMessages", () => {
     expect(
       screen.queryByText("tool-id-jag_test__get_server_info"),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders persisted chat error parts after reload", () => {
+    const messages = [
+      {
+        id: "assistant-error-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "data-chat-error",
+            error: {
+              code: "network_error",
+              message: "Network error",
+              isRetryable: true,
+              sessionId: "conv-1",
+              traceId: "trace-1",
+              spanId: "span-1",
+            },
+          },
+        ],
+      },
+    ] as unknown as UIMessage[];
+
+    render(
+      <ChatMessages
+        conversationId="conv-1"
+        messages={messages}
+        status="ready"
+      />,
+    );
+
+    expect(
+      screen.getByText(/inline-chat-error:\{"code":"network_error"/),
+    ).toBeInTheDocument();
   });
 
   it("renders structured assigned-credential-unavailable tool output as config error UI", () => {

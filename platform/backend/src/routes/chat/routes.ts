@@ -2,6 +2,7 @@ import {
   buildUserSystemPromptContext,
   type ChatErrorResponse,
   isSupportedProvider,
+  PERSISTED_CHAT_ERROR_PART_TYPE,
   RouteId,
   type SupportedProvider,
   TimeInMs,
@@ -392,7 +393,11 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
           // saves messages beyond the existing count, so onFinish will only save
           // the assistant response.
           try {
-            await persistNewMessages(conversationId, messages, "earlyUserMsg");
+            await persistNewMessages({
+              conversationId,
+              messages,
+              context: "earlyUserMsg",
+            });
           } catch (error) {
             logger.warn(
               { error, conversationId },
@@ -415,6 +420,14 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                 // Persist messages on stream-level errors (e.g. errors thrown
                 // in execute before writer.merge() is reached). Without this,
                 // user messages are lost on refresh after an error.
+                const mapped = mapProviderError(error, provider);
+                const traceContext = getActiveTraceContext();
+                const correlationLogFields =
+                  getCorrelationLogFields(traceContext);
+                const fullError = { ...mapped, ...traceContext };
+                const errorForFrontend = slimChatErrorUi
+                  ? sanitizeChatErrorForFrontend(fullError)
+                  : fullError;
                 const shouldPersist = !messagesPersisted && !!conversationId;
                 if (shouldPersist) {
                   messagesPersisted = true;
@@ -422,11 +435,12 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                 (async () => {
                   if (shouldPersist) {
                     try {
-                      await persistNewMessages(
+                      await persistNewMessages({
                         conversationId,
                         messages,
-                        "onStreamError",
-                      );
+                        context: "onStreamError",
+                        persistedError: errorForFrontend,
+                      });
                     } catch (persistError) {
                       logger.error(
                         { persistError, conversationId },
@@ -440,15 +454,6 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                     "Unexpected error in onError async persist handler",
                   );
                 });
-
-                const mapped = mapProviderError(error, provider);
-                const traceContext = getActiveTraceContext();
-                const correlationLogFields =
-                  getCorrelationLogFields(traceContext);
-                const fullError = { ...mapped, ...traceContext };
-                const errorForFrontend = slimChatErrorUi
-                  ? sanitizeChatErrorForFrontend(fullError)
-                  : fullError;
 
                 logger.info(
                   {
@@ -625,14 +630,26 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                     } else {
                       // Save messages before throwing — this error path runs before
                       // writer.merge(), so onError/onFinish callbacks won't fire.
+                      const mappedError = mapProviderError(error, provider);
+                      const traceContext = getActiveTraceContext();
+                      const errorForFrontend = slimChatErrorUi
+                        ? sanitizeChatErrorForFrontend({
+                            ...mappedError,
+                            ...traceContext,
+                          })
+                        : {
+                            ...mappedError,
+                            ...traceContext,
+                          };
                       if (!messagesPersisted && conversationId) {
                         messagesPersisted = true;
                         try {
-                          await persistNewMessages(
+                          await persistNewMessages({
                             conversationId,
                             messages,
-                            "onExecuteError",
-                          );
+                            context: "onExecuteError",
+                            persistedError: errorForFrontend,
+                          });
                         } catch (persistError) {
                           logger.error(
                             { persistError, conversationId },
@@ -656,9 +673,19 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                       if (shouldPersist) {
                         messagesPersisted = true;
                       }
+                      // Use pre-built error from subagent if available (preserves correct provider),
+                      // otherwise map the error with the current provider
+                      const mappedError: ChatErrorResponse =
+                        error instanceof ProviderError
+                          ? error.chatErrorResponse
+                          : mapProviderError(error, provider);
                       const traceContext = getActiveTraceContext();
                       const correlationLogFields =
                         getCorrelationLogFields(traceContext);
+                      const fullError = { ...mappedError, ...traceContext };
+                      const errorForFrontend = slimChatErrorUi
+                        ? sanitizeChatErrorForFrontend(fullError)
+                        : fullError;
 
                       (async () => {
                         logger.error(
@@ -674,11 +701,12 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                         // Persist messages despite error so they have a valid ID for editing
                         if (shouldPersist) {
                           try {
-                            await persistNewMessages(
+                            await persistNewMessages({
                               conversationId,
                               messages,
-                              "onError",
-                            );
+                              context: "onError",
+                              persistedError: errorForFrontend,
+                            });
                           } catch (persistError) {
                             // Log persistence error but don't prevent the error response
                             logger.error(
@@ -694,17 +722,6 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                           "Unexpected error in onError async handler",
                         );
                       });
-
-                      // Use pre-built error from subagent if available (preserves correct provider),
-                      // otherwise map the error with the current provider
-                      const mappedError: ChatErrorResponse =
-                        error instanceof ProviderError
-                          ? error.chatErrorResponse
-                          : mapProviderError(error, provider);
-                      const fullError = { ...mappedError, ...traceContext };
-                      const errorForFrontend = slimChatErrorUi
-                        ? sanitizeChatErrorForFrontend(fullError)
-                        : fullError;
 
                       logger.info(
                         {
@@ -740,11 +757,11 @@ const chatRoutes: FastifyPluginAsyncZod = async (fastify) => {
                       // Only persist if not already persisted by onError
                       if (!messagesPersisted && conversationId) {
                         try {
-                          await persistNewMessages(
+                          await persistNewMessages({
                             conversationId,
-                            finalMessages,
-                            "onFinish",
-                          );
+                            messages: finalMessages,
+                            context: "onFinish",
+                          });
                           messagesPersisted = true;
                         } catch (error) {
                           logger.error(
@@ -1942,16 +1959,23 @@ export async function generateConversationTitle(
  * @param context - Context for logging (e.g., "onFinish", "onError")
  * @returns Promise<number> - Number of messages persisted
  */
-async function persistNewMessages(
-  conversationId: string,
-  messages: unknown[],
-  context: string,
-): Promise<number> {
+async function persistNewMessages(params: {
+  conversationId: string;
+  messages: unknown[];
+  context: string;
+  persistedError?: ChatErrorResponse;
+}): Promise<number> {
+  const { conversationId, messages, context, persistedError } = params;
   try {
     // Get existing messages count to know how many are new
     const existingMessages =
       await MessageModel.findByConversation(conversationId);
-    const uiMessages = messages as ChatMessage[];
+    const uiMessages = [
+      ...(messages as ChatMessage[]),
+      ...(persistedError
+        ? [createPersistedChatErrorMessage(persistedError)]
+        : []),
+    ];
     const newMessages = getMessagesNotYetPersisted({
       existingMessages,
       uiMessages,
@@ -2019,6 +2043,20 @@ async function persistNewMessages(
     );
     throw error;
   }
+}
+
+function createPersistedChatErrorMessage(
+  error: ChatErrorResponse,
+): ChatMessage {
+  return {
+    role: "assistant",
+    parts: [
+      {
+        type: PERSISTED_CHAT_ERROR_PART_TYPE,
+        error,
+      },
+    ],
+  };
 }
 
 function getMessagesNotYetPersisted(params: {
@@ -2232,6 +2270,7 @@ async function validateChatApiKeyAccess(
 }
 
 export const __test = {
+  createPersistedChatErrorMessage,
   getMessagesNotYetPersisted,
   prepareMessagesForProvider,
 };

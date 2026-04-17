@@ -1,3 +1,4 @@
+import { ChatErrorCode, PERSISTED_CHAT_ERROR_PART_TYPE } from "@shared";
 import { describe, expect, it, vi } from "vitest";
 
 // Mock the ai module before importing chat routes
@@ -193,6 +194,32 @@ describe("getMessagesNotYetPersisted", () => {
 
     expect(newMessages).toHaveLength(1);
     expect(newMessages[0]?.id).toBe("assistant-1");
+  });
+});
+
+describe("createPersistedChatErrorMessage", () => {
+  it("builds a synthetic assistant message that preserves chat errors on reload", () => {
+    const message = __test.createPersistedChatErrorMessage({
+      code: ChatErrorCode.NetworkError,
+      message: "Network error",
+      isRetryable: true,
+      sessionId: "conv-1",
+    });
+
+    expect(message).toEqual({
+      role: "assistant",
+      parts: [
+        {
+          type: PERSISTED_CHAT_ERROR_PART_TYPE,
+          error: {
+            code: ChatErrorCode.NetworkError,
+            message: "Network error",
+            isRetryable: true,
+            sessionId: "conv-1",
+          },
+        },
+      ],
+    });
   });
 });
 

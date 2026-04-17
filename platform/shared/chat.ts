@@ -14,6 +14,8 @@ export interface TokenUsage {
   totalTokens: number | undefined;
 }
 
+export const PERSISTED_CHAT_ERROR_PART_TYPE = "data-chat-error" as const;
+
 // ============================================================================
 // Chat Message Part Types
 // ============================================================================

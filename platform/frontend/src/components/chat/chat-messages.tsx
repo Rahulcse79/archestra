@@ -2,6 +2,9 @@ import type { UIMessage } from "@ai-sdk/react";
 import {
   type ArchestraToolShortName,
   type archestraApiTypes,
+  type ChatErrorResponse,
+  isChatErrorResponse,
+  PERSISTED_CHAT_ERROR_PART_TYPE,
   parseFullToolName,
   SWAP_AGENT_FAILED_POKE_TEXT,
   SWAP_AGENT_POKE_PREFIX,
@@ -158,6 +161,21 @@ function isToolPart(part: any): part is {
       part.type?.startsWith("data-tool-ui-start") ||
       part.type === "dynamic-tool")
   );
+}
+
+function getPersistedChatError(part: unknown): ChatErrorResponse | undefined {
+  if (
+    typeof part !== "object" ||
+    part === null ||
+    !("type" in part) ||
+    part.type !== PERSISTED_CHAT_ERROR_PART_TYPE ||
+    !("error" in part) ||
+    !isChatErrorResponse(part.error)
+  ) {
+    return undefined;
+  }
+
+  return part.error;
 }
 
 export function ChatMessages({
@@ -1039,6 +1057,29 @@ export function ChatMessages({
                               />
                             ),
                           });
+                        }
+
+                        const persistedChatError = getPersistedChatError(part);
+                        if (persistedChatError) {
+                          return (
+                            <Fragment key={partKey}>
+                              <InlineChatError
+                                error={
+                                  new Error(JSON.stringify(persistedChatError))
+                                }
+                                conversationId={conversationId}
+                                supportMessage={
+                                  organization?.chatErrorSupportMessage
+                                }
+                                slimChatErrorUi={
+                                  organization?.slimChatErrorUi ?? false
+                                }
+                                agentName={agentName}
+                                selectedModel={selectedModel}
+                                modelSource={modelSource}
+                              />
+                            </Fragment>
+                          );
                         }
 
                         // Regular tool-* parts: skip if a data-tool-ui-start already
