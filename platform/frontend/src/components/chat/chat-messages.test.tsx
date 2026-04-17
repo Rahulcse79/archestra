@@ -1,4 +1,8 @@
 import type { UIMessage } from "@ai-sdk/react";
+import {
+  PERSISTED_CHAT_ERROR_PART_TYPE,
+  SWAP_AGENT_POKE_TEXT,
+} from "@shared";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -215,6 +219,60 @@ describe("ChatMessages", () => {
     );
 
     expect(screen.getByText("Switched to GitHub Agent")).toBeInTheDocument();
+  });
+
+  it("suppresses a duplicate swap divider after the hidden poke/error turn", () => {
+    const messages = [
+      {
+        id: "assistant-swap",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-sparky__swap_agent",
+            toolCallId: "call-1",
+            state: "output-available",
+            input: { agent_name: "GitHub Agent" },
+            output: { ok: true },
+          },
+        ],
+      },
+      {
+        id: "user-poke",
+        role: "user",
+        parts: [{ type: "text", text: SWAP_AGENT_POKE_TEXT }],
+      },
+      {
+        id: "assistant-error",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-sparky__swap_agent",
+            toolCallId: "call-1",
+            state: "output-available",
+            input: { agent_name: "GitHub Agent" },
+            output: { ok: true },
+          },
+          {
+            type: PERSISTED_CHAT_ERROR_PART_TYPE,
+            error: {
+              code: "invalid_request",
+              message: "Request failed",
+              isRetryable: false,
+            },
+          },
+        ],
+      },
+    ] as UIMessage[];
+
+    render(
+      <ChatMessages
+        conversationId="conv-1"
+        messages={messages}
+        status="ready"
+      />,
+    );
+
+    expect(screen.getAllByText("Switched to GitHub Agent")).toHaveLength(1);
   });
 
   it("renders the unsafe-context divider when a tool result marks the context unsafe", () => {

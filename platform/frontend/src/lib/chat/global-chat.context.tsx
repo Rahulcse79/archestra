@@ -6,6 +6,7 @@ import {
   EXTERNAL_AGENT_ID_HEADER,
   getArchestraToolShortName,
   isChatErrorResponse,
+  PERSISTED_CHAT_ERROR_PART_TYPE,
   makeSwapAgentPokeText,
   SWAP_AGENT_FAILED_POKE_TEXT,
   SWAP_TO_DEFAULT_AGENT_POKE_TEXT,
@@ -431,6 +432,8 @@ function ChatSessionHook({
           `[ChatSession] Auto-retrying (${retryCountRef.current}/${MAX_AUTO_RETRIES})...`,
         );
         retryTimerRef.current = setTimeout(() => {
+          clearPersistedConversationError(conversationId);
+          setPersistedError(undefined);
           regenerate();
         }, AUTO_RETRY_DELAY_MS);
       }
@@ -543,10 +546,32 @@ function ChatSessionHook({
   });
   previousMessagesRef.current = messagesWithRestoredAssistantParts;
 
+  const clearPersistedErrorState = useCallback(() => {
+    clearPersistedConversationError(conversationId);
+    setPersistedError(undefined);
+  }, [conversationId]);
+
+  const sendMessageWithErrorReset = useCallback(
+    (message: Parameters<ReturnType<typeof useChat>["sendMessage"]>[0]) => {
+      clearPersistedErrorState();
+      sendMessage(message);
+    },
+    [clearPersistedErrorState, sendMessage],
+  );
+
   // Keep sendMessageRef up-to-date for onFinish callback
-  sendMessageRef.current = sendMessage;
+  sendMessageRef.current = sendMessageWithErrorReset;
 
   const stableMessages = messagesWithRestoredAssistantParts;
+
+  useEffect(() => {
+    if (!hasPersistedChatErrorMessage(stableMessages)) {
+      return;
+    }
+
+    clearPersistedConversationError(conversationId);
+    setPersistedError(undefined);
+  }, [conversationId, stableMessages]);
 
   // Reset retry counter only when the user sends a genuinely new message.
   // We track the last user message ID to avoid resetting during regenerate(),
@@ -614,7 +639,7 @@ function ChatSessionHook({
   sessionRef.current = {
     conversationId,
     messages: stableMessages,
-    sendMessage,
+    sendMessage: sendMessageWithErrorReset,
     stop,
     status,
     error: error ?? persistedError,
@@ -638,7 +663,7 @@ function ChatSessionHook({
   }, [
     conversationId,
     stableMessages,
-    sendMessage,
+    sendMessageWithErrorReset,
     stop,
     status,
     error,
@@ -742,6 +767,18 @@ function getCurrentArchestraToolShortName(
     fullWhiteLabeling: appConfig.enterpriseFeatures.fullWhiteLabeling,
     includeDefaultPrefix: true,
   });
+}
+
+function hasPersistedChatErrorMessage(messages: UIMessage[]): boolean {
+  return messages.some((message) =>
+    (message.parts ?? []).some(
+      (part) =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === PERSISTED_CHAT_ERROR_PART_TYPE,
+    ),
+  );
 }
 
 export function useGlobalChat() {

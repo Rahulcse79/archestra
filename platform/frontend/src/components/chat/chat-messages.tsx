@@ -106,7 +106,10 @@ import {
   UnsafeContextStartsHereDivider,
 } from "./message-boundary-divider";
 import { PolicyDeniedTool } from "./policy-denied-tool";
-import { SwapAgentBoundaryDivider } from "./swap-agent-boundary";
+import {
+  getSwapAgentBoundaryLabel,
+  SwapAgentBoundaryDivider,
+} from "./swap-agent-boundary";
 import { TodoWriteTool } from "./todo-write-tool";
 import { ToolErrorLogsButton } from "./tool-error-logs-button";
 import { ToolStatusRow } from "./tool-status-row";
@@ -1164,6 +1167,17 @@ export function ChatMessages({
                     parts={message.parts ?? []}
                     getToolShortName={getToolShortName}
                     hasToolError={hasSwapToolError}
+                    shouldRender={shouldRenderSwapAgentDivider({
+                      messageIndex: idx,
+                      messages,
+                      isDebugging,
+                      currentLabel: getSwapAgentBoundaryLabel({
+                        parts: message.parts ?? [],
+                        getToolShortName,
+                        hasToolError: hasSwapToolError,
+                      }),
+                      getToolShortName,
+                    })}
                   />
                 )}
               </div>
@@ -1739,6 +1753,68 @@ function isSwapAgentPokeMessage(message: UIMessage): boolean {
     text === SWAP_TO_DEFAULT_AGENT_POKE_TEXT ||
     text.startsWith(SWAP_AGENT_POKE_PREFIX)
   );
+}
+
+function shouldRenderSwapAgentDivider(params: {
+  messageIndex: number;
+  messages: UIMessage[];
+  isDebugging: boolean;
+  currentLabel: string | null;
+  getToolShortName: (toolName: string) => ArchestraToolShortName | null;
+}): boolean {
+  const {
+    messageIndex,
+    messages,
+    isDebugging,
+    currentLabel,
+    getToolShortName,
+  } = params;
+  if (!currentLabel) {
+    return false;
+  }
+
+  const previousVisibleAssistantMessage = findPreviousVisibleAssistantMessage({
+    currentIndex: messageIndex,
+    isDebugging,
+    messages,
+  });
+  if (!previousVisibleAssistantMessage) {
+    return true;
+  }
+
+  const previousLabel = getSwapAgentBoundaryLabel({
+    parts: previousVisibleAssistantMessage.parts ?? [],
+    getToolShortName,
+    hasToolError: hasSwapToolError,
+  });
+  return previousLabel !== currentLabel;
+}
+
+function findPreviousVisibleAssistantMessage(params: {
+  currentIndex: number;
+  isDebugging: boolean;
+  messages: UIMessage[];
+}): UIMessage | null {
+  const { currentIndex, isDebugging, messages } = params;
+
+  for (let index = currentIndex - 1; index >= 0; index--) {
+    const previousMessage = messages[index];
+    if (!previousMessage) {
+      continue;
+    }
+
+    if (!isDebugging && isSwapAgentPokeMessage(previousMessage)) {
+      continue;
+    }
+
+    if (previousMessage.role === "assistant") {
+      return previousMessage;
+    }
+
+    return null;
+  }
+
+  return null;
 }
 
 function renderPartWithUnsafeContextDivider({

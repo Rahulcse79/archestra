@@ -158,6 +158,58 @@ describe("useChatSession", () => {
     ).toBeNull();
   });
 
+  it("clears a persisted error as soon as a new user message is sent", async () => {
+    const conversationId = "conversation-2b";
+
+    const { result } = renderHook(
+      () => useChatSession({ conversationId, enabled: true }),
+      {
+        wrapper: createWrapper(),
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+      expect(latestUseChatOptions).toBeDefined();
+    });
+
+    act(() => {
+      latestUseChatOptions?.onError?.(
+        new Error(
+          JSON.stringify({
+            code: "server_error",
+            message: "Temporary backend failure",
+            isRetryable: true,
+          }),
+        ),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current?.error?.message).toContain(
+        "Temporary backend failure",
+      );
+    });
+
+    act(() => {
+      result.current?.sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: "hello" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current?.error).toBeUndefined();
+    });
+    expect(
+      localStorage.getItem(conversationStorageKeys(conversationId).error),
+    ).toBeNull();
+    expect(useChatState.sendMessage).toHaveBeenCalledWith({
+      role: "user",
+      parts: [{ type: "text", text: "hello" }],
+    });
+  });
+
   it("keeps showing the in-memory error when localStorage persistence fails", async () => {
     const conversationId = "conversation-3";
     const storageSpy = vi
