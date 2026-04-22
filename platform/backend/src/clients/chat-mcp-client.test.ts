@@ -297,17 +297,16 @@ describe("chat-mcp-client health check", () => {
 
       await vi.advanceTimersByTimeAsync(1_001);
 
-      const tools = await chatClient.getChatMcpTools({
-        agentName: agent.name,
-        agentId: agent.id,
-        userId: user.id,
-        organizationId: org.id,
-        conversationId: "conv-1",
-      });
+      const client = await chatClient.getChatMcpClient(
+        agent.id,
+        user.id,
+        org.id,
+        "conv-1",
+      );
 
       expect(expiredClient.ping).not.toHaveBeenCalled();
       expect(expiredClient.close).toHaveBeenCalledTimes(1);
-      expect(tools).toEqual({});
+      expect(client).toBeNull();
 
       chatClient.clearChatMcpClient(agent.id);
       await chatClient.__test.clearToolCache(cacheKey);
@@ -347,15 +346,10 @@ describe("chat-mcp-client health check", () => {
       deadClient as unknown as Client,
     );
 
-    // getChatMcpTools should detect dead client via ping, discard it,
+    // getChatMcpClient should detect dead client via ping, discard it,
     // and attempt to create a fresh client (which will fail in test env,
-    // resulting in empty tools - but the key behavior is ping was called)
-    const tools = await chatClient.getChatMcpTools({
-      agentName: agent.name,
-      agentId: agent.id,
-      userId: user.id,
-      organizationId: org.id,
-    });
+    // resulting in null - but the key behavior is ping was called)
+    const client = await chatClient.getChatMcpClient(agent.id, user.id, org.id);
 
     // Ping should have been called on the dead client
     expect(deadClient.ping).toHaveBeenCalledTimes(1);
@@ -363,8 +357,8 @@ describe("chat-mcp-client health check", () => {
     expect(deadClient.close).toHaveBeenCalledTimes(1);
     // listTools should NOT have been called on the dead client
     expect(deadClient.listTools).not.toHaveBeenCalled();
-    // Tools will be empty since we can't create a real client in tests
-    expect(tools).toEqual({});
+    // Client will be null since we can't create a real connection in tests
+    expect(client).toBeNull();
 
     chatClient.clearChatMcpClient(agent.id);
     await chatClient.__test.clearToolCache(cacheKey);
@@ -402,20 +396,19 @@ describe("chat-mcp-client health check", () => {
         hangingClient as unknown as Client,
       );
 
-      const toolsPromise = chatClient.getChatMcpTools({
-        agentName: agent.name,
-        agentId: agent.id,
-        userId: user.id,
-        organizationId: org.id,
-      });
+      const clientPromise = chatClient.getChatMcpClient(
+        agent.id,
+        user.id,
+        org.id,
+      );
 
       await vi.advanceTimersByTimeAsync(5_000);
-      const tools = await toolsPromise;
+      const client = await clientPromise;
 
       expect(hangingClient.ping).toHaveBeenCalledTimes(1);
       expect(hangingClient.close).toHaveBeenCalledTimes(1);
       expect(hangingClient.listTools).not.toHaveBeenCalled();
-      expect(tools).toEqual({});
+      expect(client).toBeNull();
 
       chatClient.clearChatMcpClient(agent.id);
       await chatClient.__test.clearToolCache(cacheKey);
@@ -635,13 +628,16 @@ describe("executeMcpTool error handling", () => {
   });
 });
 
-describe("chat-mcp-client tool caching", () => {
-  test("reuses cached tool definitions for the same agent and user", async ({
+describe("chat-mcp-client tool discovery", () => {
+  test("discovers assigned MCP tools without listing tools through the cached client", async ({
     makeAgent,
     makeUser,
     makeOrganization,
     makeTeam,
     makeTeamMember,
+    makeTool,
+    makeAgentTool,
+    makeInternalMcpCatalog,
   }) => {
     // Create real test data using fixtures
     const org = await makeOrganization();
@@ -656,6 +652,14 @@ describe("chat-mcp-client tool caching", () => {
 
     // Create team token for the team
     await TeamTokenModel.createTeamToken(team.id, team.name);
+    const catalog = await makeInternalMcpCatalog();
+    const tool = await makeTool({
+      name: "lookup_mcp__lookup_email",
+      description: "Lookup email",
+      parameters: { type: "object", properties: {} },
+      catalogId: catalog.id,
+    });
+    await makeAgentTool(agent.id, tool.id);
 
     const cacheKey = chatClient.__test.getCacheKey(agent.id, user.id);
 
@@ -688,7 +692,7 @@ describe("chat-mcp-client tool caching", () => {
       userId: user.id,
       organizationId: org.id,
     });
-    expect(Object.keys(first)).toEqual(["lookup_email"]);
+    expect(Object.keys(first)).toEqual(["lookup_mcp__lookup_email"]);
 
     const second = await chatClient.getChatMcpTools({
       agentName: agent.name,
@@ -700,12 +704,11 @@ describe("chat-mcp-client tool caching", () => {
     // Check that second call returns the same tool names
     // Note: With cacheManager, functions and symbols cannot be serialized,
     // so we compare the tool names and descriptions rather than full equality
-    expect(Object.keys(second)).toEqual(["lookup_email"]);
-    expect(second.lookup_email.description).toEqual(
-      first.lookup_email.description,
+    expect(Object.keys(second)).toEqual(["lookup_mcp__lookup_email"]);
+    expect(second.lookup_mcp__lookup_email.description).toEqual(
+      first.lookup_mcp__lookup_email.description,
     );
-    // Most importantly, listTools should only be called once due to caching
-    expect(mockClient.listTools).toHaveBeenCalledTimes(1);
+    expect(mockClient.listTools).not.toHaveBeenCalled();
 
     chatClient.clearChatMcpClient(agent.id);
     await chatClient.__test.clearToolCache(cacheKey);

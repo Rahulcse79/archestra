@@ -18,6 +18,7 @@ import {
   parseFullToolName,
   TimeInMs,
   TOOL_INVOCATION_APPROVAL_REQUIRED_AUTONOMOUS_REASON,
+  TOOL_QUERY_KNOWLEDGE_SOURCES_SHORT_NAME,
 } from "@shared";
 import { type JSONSchema7, jsonSchema, type Tool } from "ai";
 import { evaluateToolExecutionContextTrust } from "@/agents/context-trust";
@@ -25,6 +26,7 @@ import {
   type ArchestraContext,
   archestraMcpBranding,
   executeArchestraTool,
+  filterToolNamesByPermission,
   getAgentTools,
 } from "@/archestra-mcp-server";
 import { CacheKey, LRUCacheManager } from "@/cache-manager";
@@ -47,6 +49,7 @@ import {
   ATTR_MCP_IS_ERROR_RESULT,
   startActiveMcpSpan,
 } from "@/observability/tracing";
+import { buildKnowledgeSourcesDescription } from "@/routes/mcp-gateway.utils";
 import { resolveSessionExternalIdpToken } from "@/services/identity-providers/session-token";
 import type {
   AgentType,
@@ -776,28 +779,39 @@ export async function getChatMcpTools({
     return {};
   }
 
-  // Still use MCP client for listing tools (via MCP Gateway)
-  // Pass conversationId for per-conversation browser isolation.
-  // Forward the already-resolved token to avoid a duplicate selectMCPGatewayToken call.
-  const client = await getChatMcpClient(
-    agentId,
-    userId,
-    organizationId,
-    conversationId,
-    mcpGwToken.tokenValue,
-  );
-
-  if (!client) {
-    logger.warn(
-      { agentId, userId },
-      "No MCP client available, returning empty tools",
-    );
-    return {}; // No tools available
-  }
-
   try {
-    logger.info({ agentId, userId }, "MCP client available, listing tools...");
-    const { tools: mcpTools } = await client.listTools();
+    const [org, agent] = await Promise.all([
+      OrganizationModel.getById(organizationId),
+      AgentModel.findById(agentId),
+    ]);
+
+    archestraMcpBranding.syncFromOrganization(org);
+
+    const [assignedMcpTools, kbToolDescription] = await Promise.all([
+      ToolModel.getMcpToolsByAgent(agentId),
+      buildKnowledgeSourcesDescription(agentId),
+    ]);
+
+    const permittedToolNames = await filterToolNamesByPermission(
+      assignedMcpTools.map((tool) => tool.name),
+      userId === "system" ? undefined : userId,
+      organizationId,
+    );
+
+    const mcpTools = assignedMcpTools
+      .filter((tool) => permittedToolNames.has(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        description:
+          tool.name ===
+            archestraMcpBranding.getToolName(
+              TOOL_QUERY_KNOWLEDGE_SOURCES_SHORT_NAME,
+            ) && kbToolDescription
+            ? kbToolDescription
+            : (tool.description ?? undefined),
+        inputSchema: tool.parameters,
+        _meta: tool.meta?._meta,
+      }));
 
     // Filter out agent skills and app-only tools.
     // Tools with _meta.ui.visibility that does not include "model" are intended
@@ -817,14 +831,10 @@ export async function getChatMcpTools({
         toolCount: filteredMcpTools.length,
         toolNames: filteredMcpTools.map((t) => t.name),
       },
-      "Fetched tools from MCP Gateway for agent/user",
+      "Fetched chat tools from database for agent/user",
     );
 
     // Fetch globalToolPolicy for approval checks (needed for both chat and autonomous contexts).
-    const [org, agent] = await Promise.all([
-      OrganizationModel.getById(organizationId),
-      AgentModel.findById(agentId),
-    ]);
     const globalToolPolicy: GlobalToolPolicy =
       org?.globalToolPolicy ?? "permissive";
     const considerContextUntrusted = agent?.considerContextUntrusted ?? false;
