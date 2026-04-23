@@ -127,6 +127,7 @@ export function EditConnectorDialog({
     servicenow: "Password",
     notion: "Integration Token",
     sharepoint: "Client Secret",
+    onedrive: "Client Secret",
     gdrive: "Service Account Key / OAuth Token",
     dropbox: "Access Token",
     outline: "API Key",
