@@ -40,6 +40,7 @@ import { GitlabConfigFields } from "./gitlab-config-fields";
 import { JiraConfigFields } from "./jira-config-fields";
 import { LinearConfigFields } from "./linear-config-fields";
 import { NotionConfigFields } from "./notion-config-fields";
+import { OneDriveConfigFields } from "./onedrive-config-fields";
 import { OutlineConfigFields } from "./outline-config-fields";
 import { SchedulePicker } from "./schedule-picker";
 import { ServiceNowConfigFields } from "./servicenow-config-fields";
@@ -373,7 +374,7 @@ export function EditConnectorDialog({
             />
           )}
 
-          {connectorType === "sharepoint" && (
+          {(connectorType === "sharepoint" || connectorType === "onedrive") && (
             <FormField
               control={form.control}
               name="config.tenantId"
@@ -396,7 +397,31 @@ export function EditConnectorDialog({
             />
           )}
 
-          {connectorType === "sharepoint" && (
+          {connectorType === "onedrive" && (
+            <FormField
+              control={form.control}
+              name="config.userIds"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>User IDs</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="user1@tenant.com, user2@tenant.com"
+                      {...field}
+                      value={(field.value as string) ?? ""}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Comma-separated Azure AD user IDs or UPNs whose OneDrive
+                    drives to sync.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          {(connectorType === "sharepoint" || connectorType === "onedrive") && (
             <FormField
               control={form.control}
               name="email"
@@ -423,7 +448,24 @@ export function EditConnectorDialog({
             name="apiToken"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{apiTokenLabel}</FormLabel>
+                <FormLabel>
+                  {connectorType === "servicenow"
+                    ? "Password"
+                    : connectorType === "notion"
+                      ? "Integration Token"
+                      : connectorType === "sharepoint" ||
+                          connectorType === "onedrive"
+                        ? "Client Secret"
+                        : connectorType === "gdrive"
+                          ? "Service Account Key / OAuth Token"
+                          : connectorType === "dropbox"
+                            ? "Access Token"
+                            : needsEmail
+                              ? emailRequired
+                                ? "API Token"
+                                : "API Token / Personal Access Token"
+                              : "Personal Access Token"}
+                </FormLabel>
                 <FormControl>
                   <Input
                     type="password"
@@ -442,6 +484,12 @@ export function EditConnectorDialog({
                   <p className="text-[0.8rem] text-muted-foreground">
                     The Azure AD app registration requires the{" "}
                     <code>Sites.Read.All</code> permission on Microsoft Graph.
+                  </p>
+                )}
+                {connectorType === "onedrive" && (
+                  <p className="text-[0.8rem] text-muted-foreground">
+                    The Azure AD app registration requires the{" "}
+                    <code>Files.Read.All</code> permission on Microsoft Graph.
                   </p>
                 )}
                 {connectorType === "gdrive" && (
@@ -487,6 +535,9 @@ export function EditConnectorDialog({
               )}
               {connectorType === "dropbox" && (
                 <DropboxConfigFields control={form.control} />
+              )}
+              {connectorType === "onedrive" && (
+                <OneDriveConfigFields form={form} />
               )}
               {connectorType === "asana" && <AsanaConfigFields form={form} />}
               {connectorType === "outline" && (
@@ -570,6 +621,8 @@ function getEditUrlConfig(type: ConnectorType): {
       return { typeLabel: "Google Drive", urlFields: null };
     case "asana":
       return { typeLabel: "Asana", urlFields: null };
+    case "onedrive":
+      return { typeLabel: "OneDrive", urlFields: null };
     case "sharepoint":
       return {
         typeLabel: "SharePoint",

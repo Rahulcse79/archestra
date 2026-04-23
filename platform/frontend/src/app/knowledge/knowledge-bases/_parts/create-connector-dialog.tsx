@@ -50,6 +50,7 @@ import { GitlabConfigFields } from "./gitlab-config-fields";
 import { JiraConfigFields } from "./jira-config-fields";
 import { LinearConfigFields } from "./linear-config-fields";
 import { NotionConfigFields } from "./notion-config-fields";
+import { OneDriveConfigFields } from "./onedrive-config-fields";
 import { OutlineConfigFields } from "./outline-config-fields";
 import { SchedulePicker } from "./schedule-picker";
 import { ServiceNowConfigFields } from "./servicenow-config-fields";
@@ -113,6 +114,11 @@ const CONNECTOR_OPTIONS: {
     type: "dropbox",
     label: "Dropbox",
     description: "Sync files and folders from Dropbox",
+  },
+  {
+    type: "onedrive",
+    label: CONNECTOR_TYPE_LABELS.onedrive,
+    description: "Sync files and documents from OneDrive for Business",
   },
   {
     type: "asana",
@@ -191,6 +197,7 @@ export function CreateConnectorDialog({
       sharepoint: { type, includePages: true, recursive: true },
       gdrive: { type, recursive: true },
       dropbox: { type, rootPath: "" },
+      onedrive: { type, userIds: [], recursive: true },
       asana: { type },
       outline: { type, outlineUrl: "https://app.getoutline.com" },
     };
@@ -614,7 +621,8 @@ export function CreateConnectorDialog({
                   />
                 )}
 
-                {connectorType === "sharepoint" && (
+                {(connectorType === "sharepoint" ||
+                  connectorType === "onedrive") && (
                   <FormField
                     control={form.control}
                     name="config.tenantId"
@@ -638,7 +646,33 @@ export function CreateConnectorDialog({
                   />
                 )}
 
-                {connectorType === "sharepoint" && (
+                {connectorType === "onedrive" && (
+                  <FormField
+                    control={form.control}
+                    name="config.userIds"
+                    rules={{ required: "At least one User ID is required" }}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>User IDs</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="user1@tenant.com, user2@tenant.com"
+                            {...field}
+                            value={(field.value as string) ?? ""}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Comma-separated Azure AD user IDs or UPNs whose
+                          OneDrive drives to sync.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {(connectorType === "sharepoint" ||
+                  connectorType === "onedrive") && (
                   <FormField
                     control={form.control}
                     name="email"
@@ -664,14 +698,65 @@ export function CreateConnectorDialog({
                 <FormField
                   control={form.control}
                   name="apiToken"
-                  rules={{ required: apiTokenRequiredMessage }}
+                  rules={{
+                    required: needsEmail
+                      ? emailRequired
+                        ? "API token is required"
+                        : "API token or personal access token is required"
+                      : connectorType === "servicenow"
+                        ? "Password is required"
+                        : connectorType === "notion"
+                          ? "Integration token is required"
+                          : connectorType === "sharepoint" ||
+                              connectorType === "onedrive"
+                            ? "Client secret is required"
+                            : connectorType === "gdrive"
+                              ? "Service account key or OAuth token is required"
+                              : connectorType === "dropbox"
+                                ? "Access token is required"
+                                : "Personal access token is required",
+                  }}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{apiTokenLabel}</FormLabel>
+                      <FormLabel>
+                        {connectorType === "servicenow"
+                          ? "Password"
+                          : connectorType === "notion"
+                            ? "Integration Token"
+                            : connectorType === "sharepoint" ||
+                                connectorType === "onedrive"
+                              ? "Client Secret"
+                              : connectorType === "gdrive"
+                                ? "Service Account Key / OAuth Token"
+                                : connectorType === "dropbox"
+                                  ? "Access Token"
+                                  : needsEmail
+                                    ? emailRequired
+                                      ? "API Token"
+                                      : "API Token / Personal Access Token"
+                                    : "Personal Access Token"}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           type="password"
-                          placeholder={apiTokenPlaceholder}
+                          placeholder={
+                            connectorType === "servicenow"
+                              ? "Your ServiceNow password"
+                              : connectorType === "notion"
+                                ? "secret_..."
+                                : connectorType === "sharepoint" ||
+                                    connectorType === "onedrive"
+                                  ? "Your Azure AD client secret"
+                                  : connectorType === "gdrive"
+                                    ? "Paste service account JSON key or OAuth access token"
+                                    : connectorType === "dropbox"
+                                      ? "Your Dropbox access token"
+                                      : needsEmail
+                                        ? emailRequired
+                                          ? "Your API token"
+                                          : "Your API token or personal access token"
+                                        : "Your personal access token"
+                          }
                           {...field}
                         />
                       </FormControl>
@@ -686,6 +771,13 @@ export function CreateConnectorDialog({
                         <p className="text-[0.8rem] text-muted-foreground">
                           The Azure AD app registration requires the{" "}
                           <code>Sites.Read.All</code> permission on Microsoft
+                          Graph.
+                        </p>
+                      )}
+                      {connectorType === "onedrive" && (
+                        <p className="text-[0.8rem] text-muted-foreground">
+                          The Azure AD app registration requires the{" "}
+                          <code>Files.Read.All</code> permission on Microsoft
                           Graph.
                         </p>
                       )}
@@ -750,6 +842,9 @@ export function CreateConnectorDialog({
                     )}
                     {connectorType === "dropbox" && (
                       <DropboxConfigFields control={form.control} />
+                    )}
+                    {connectorType === "onedrive" && (
+                      <OneDriveConfigFields form={form} />
                     )}
                     {connectorType === "asana" && (
                       <AsanaConfigFields form={form} hideWorkspaceGid />
@@ -834,6 +929,8 @@ function getUrlConfig(type: ConnectorType): {
     case "gdrive":
       return null;
     case "asana":
+      return null;
+    case "onedrive":
       return null;
     case "sharepoint":
       return {
