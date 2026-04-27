@@ -137,11 +137,10 @@ const AgentToolsEditorContent = forwardRef<
   // Fetch catalog items (MCP servers in registry)
   const { data: catalogItems = [], isPending } = useInternalMcpCatalog();
 
-  // Fetch all credentials grouped by catalog (for default credential on toggle)
-  const allCredentials = useMcpServersGroupedByCatalog({
-    assignmentScope,
-    assignmentTeamIds,
-  });
+  // Fetch all credentials grouped by catalog (for default credential on toggle).
+  // Show every credential regardless of agent scope — the user picks what to bind,
+  // and runtime resolution determines accessibility per invoking user.
+  const allCredentials = useMcpServersGroupedByCatalog();
 
   // Fetch tool counts for all catalog items to enable sorting
   const toolCountQueries = useQueries({
@@ -686,11 +685,9 @@ function McpServerPill({
     catalogItem.id,
   );
 
-  // Fetch available credentials for this catalog
+  // Fetch available credentials for this catalog (no scope filter — see parent)
   const credentials = useMcpServersGroupedByCatalog({
     catalogId: catalogItem.id,
-    assignmentScope,
-    assignmentTeamIds,
   });
   const mcpServers = credentials?.[catalogItem.id] ?? [];
   const prefersEnterpriseManaged = catalogItem.enterpriseManagedConfig != null;
