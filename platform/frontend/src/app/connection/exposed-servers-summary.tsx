@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -15,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 interface ExposedServersSummaryProps {
   gatewayId?: string;
+  canManage?: boolean;
   className?: string;
 }
 
@@ -27,6 +30,7 @@ interface ExposedServer {
 
 export function ExposedServersSummary({
   gatewayId,
+  canManage = false,
   className,
 }: ExposedServersSummaryProps) {
   const { data: gateway } = useProfile(gatewayId);
@@ -102,14 +106,32 @@ export function ExposedServersSummary({
     );
   }
 
-  if (servers.length === 0) return null;
-
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       <div
         ref={scrollRef}
         className="flex items-center gap-3 overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
+        {gatewayId && canManage ? (
+          <Link
+            href={`/mcp/gateways?edit=${encodeURIComponent(gatewayId)}&openTools=true`}
+            className="inline-flex shrink-0 items-center gap-2.5 rounded-full border border-dashed border-border/70 bg-background py-1.5 pl-2 pr-4 text-[14px] font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              <Plus className="size-4" />
+            </span>
+            <span>Add MCP server</span>
+          </Link>
+        ) : gatewayId ? (
+          <div
+            className="inline-flex shrink-0 items-center gap-2.5 rounded-full border border-dashed border-border/70 bg-background py-1.5 pl-4 pr-4 text-[14px] font-medium text-muted-foreground"
+            title="You don't have permission to add MCP servers to this gateway"
+          >
+            <span className="flex h-7 items-center">
+              Ask your admin to add more MCPs
+            </span>
+          </div>
+        ) : null}
         {servers.map((server) => (
           <div
             key={server.catalogId ?? server.name}
