@@ -225,6 +225,103 @@ claude`,
     },
   },
   {
+    id: "n8n",
+    label: "n8n",
+    sub: "Workflow automation",
+    tileBg: "#fff1f3",
+    iconOverride: { bg: "#ea4b71", fg: "#fff", glyph: "n8n" },
+    mcp: {
+      kind: "custom",
+      // n8n's MCP Client Tool node only accepts static credentials
+      // (Bearer / Header Auth). OAuth 2.1 with refresh tokens isn't
+      // supported yet, so we hide the OAuth tab.
+      supportedAuth: "token",
+      configFile: "n8n",
+      language: "bash",
+      steps: [
+        {
+          title: "Add an MCP Client Tool node",
+          body: "In your AI Agent workflow, attach an MCP Client Tool sub-node to the agent's Tool input.",
+        },
+        {
+          title: "Set the SSE Endpoint",
+          body: "Paste the gateway URL into the SSE Endpoint field.",
+          terminalTitle: "SSE Endpoint",
+          buildCommand: ({ url }) => url,
+        },
+        {
+          title: "Configure Bearer Auth",
+          body: 'Create a new credential of type "Bearer Auth" and paste the Archestra token below. n8n\'s MCP Client only supports static credentials — OAuth 2.1 is not yet available.',
+          terminalTitle: "Bearer token",
+          buildCommand: ({ token }) => token ?? "<archestra-token>",
+        },
+      ],
+    },
+    proxy: {
+      kind: "custom",
+      supportedProviders: [
+        "openai",
+        "anthropic",
+        "gemini",
+        "cohere",
+        "mistral",
+        "perplexity",
+        "groq",
+        "xai",
+        "openrouter",
+        "ollama",
+        "deepseek",
+        "minimax",
+        "cerebras",
+        "vllm",
+        "zhipuai",
+      ],
+      build: ({ provider, providerLabel, url, tokenPlaceholder }) => {
+        const NATIVE_NODE_NAMES: Partial<Record<SupportedProvider, string>> = {
+          openai: "OpenAI Chat Model",
+          anthropic: "Anthropic Chat Model",
+          gemini: "Google Gemini Chat Model",
+          cohere: "Cohere Chat Model",
+          mistral: "Mistral Cloud Chat Model",
+          perplexity: "Perplexity Chat Model",
+          groq: "Groq Chat Model",
+          xai: "xAI Grok Chat Model",
+          openrouter: "OpenRouter Chat Model",
+          ollama: "Ollama Chat Model",
+          deepseek: "DeepSeek Chat Model",
+          minimax: "MiniMax Chat Model",
+        };
+        const nativeNode = NATIVE_NODE_NAMES[provider];
+        const nodeName = nativeNode ?? "OpenAI Chat Model";
+        const note = nativeNode
+          ? undefined
+          : `n8n has no dedicated node for ${providerLabel}, but its API is OpenAI-compatible — use the OpenAI Chat Model node and point its base URL at Archestra.`;
+        return {
+          kind: "steps",
+          note,
+          steps: [
+            {
+              title: `Add the ${nodeName} node`,
+              body: `In your AI Agent workflow, attach a ${nodeName} sub-node to the agent's Chat Model input.`,
+            },
+            {
+              title: "Create a new credential",
+              body: 'Click the credential dropdown and choose "Create New Credential". Expand the optional/advanced fields so the Base URL field is visible.',
+            },
+            {
+              title: "Override the Base URL",
+              body: `Paste ${url} into the Base URL field.`,
+            },
+            {
+              title: "Paste your API key",
+              body: `Paste ${tokenPlaceholder} into the API Key field and save the credential.`,
+            },
+          ],
+        };
+      },
+    },
+  },
+  {
     id: "generic",
     label: "Any Client",
     sub: "Generic instructions",
