@@ -479,6 +479,25 @@ setup("authenticate as basic-user (custom role)", async ({ page }) => {
   await page.goto(`${UI_BASE_URL}/chat`);
   await page.waitForLoadState("domcontentloaded");
 
+  // Custom RBAC roles are an enterprise-only feature. The quickstart e2e job
+  // runs the platform without ARCHESTRA_ENTERPRISE_LICENSE_ACTIVATED=true, so
+  // POST /api/roles is not registered there. The chat-permissions spec that
+  // consumes basicUserAuthFile is not part of the quickstart suite, so it is
+  // safe to skip this setup when EE is off.
+  const configResponse = await page.request.get(`${UI_BASE_URL}/api/config`, {
+    headers: { Origin: UI_BASE_URL },
+  });
+  if (configResponse.ok()) {
+    const cfg = await configResponse.json();
+    if (!cfg?.enterpriseFeatures?.core) {
+      setup.skip(
+        true,
+        "Custom roles require enterprise features (ARCHESTRA_ENTERPRISE_LICENSE_ACTIVATED). Skipping basic-user setup.",
+      );
+      return;
+    }
+  }
+
   // Ensure the custom role exists with the current permission set
   const basicUserRoleIdentifier = await ensureBasicUserRole(page.request);
 
