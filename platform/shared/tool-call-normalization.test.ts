@@ -127,6 +127,57 @@ describe("stripDanglingToolCalls", () => {
     expect(stripDanglingToolCalls(messages)).toEqual(messages);
   });
 
+  test("removes interrupted input-streaming tool calls with no result", () => {
+    const messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Working on it..." },
+          {
+            type: "tool-google__search",
+            toolCallId: "call_1",
+            state: "input-streaming",
+            input: undefined,
+          },
+        ],
+      },
+    ];
+
+    expect(stripDanglingToolCalls(messages)).toEqual([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Working on it..." }],
+      },
+    ]);
+  });
+
+  test("removes approval-requested tool calls with no completed counterpart", () => {
+    const messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-google__search",
+            toolCallId: "call_1",
+            state: "approval-requested",
+            input: { q: "x" },
+          },
+        ],
+      },
+    ];
+
+    expect(stripDanglingToolCalls(messages)).toEqual([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [],
+      },
+    ]);
+  });
+
   test("preserves backend tool-call parts when a later tool-result completes them", () => {
     const messages = [
       {

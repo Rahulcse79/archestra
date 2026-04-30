@@ -214,6 +214,136 @@ describe("prepareMessagesForProvider", () => {
     expect(messages[0]).toBe(message);
   });
 
+  it("repairs string tool-call input by parsing JSON when possible", () => {
+    const messages = __test.prepareMessagesForProvider({
+      provider: "bedrock",
+      messages: [
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "call_1",
+              toolName: "search",
+              input: '{"q":"weather"}',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(messages[0].parts?.[0]).toMatchObject({
+      type: "tool-call",
+      input: { q: "weather" },
+    });
+  });
+
+  it("repairs non-object tool-call input with an empty object", () => {
+    for (const badInput of [
+      undefined,
+      null,
+      "",
+      "  ",
+      "not-json",
+      [1, 2],
+      42,
+    ]) {
+      const messages = __test.prepareMessagesForProvider({
+        provider: "bedrock",
+        messages: [
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "tool-call",
+                toolCallId: "call_x",
+                toolName: "search",
+                input: badInput,
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(messages[0].parts?.[0]).toMatchObject({
+        type: "tool-call",
+        input: {},
+      });
+    }
+  });
+
+  it("repairs tool-call input on UI-style `tool-${name}` parts", () => {
+    const messages = __test.prepareMessagesForProvider({
+      provider: "bedrock",
+      messages: [
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-google__search",
+              toolCallId: "call_1",
+              state: "output-error",
+              input: undefined,
+              errorText: "boom",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(messages[0].parts?.[0]).toMatchObject({
+      type: "tool-google__search",
+      input: {},
+    });
+  });
+
+  it("leaves tool-result parts untouched when repairing tool inputs", () => {
+    const message = {
+      role: "tool" as const,
+      parts: [
+        {
+          type: "tool-result",
+          toolCallId: "call_1",
+          // tool-result has `output`, not `input` — repair must skip it
+          output: "hello",
+        },
+      ],
+    };
+
+    const messages = __test.prepareMessagesForProvider({
+      provider: "bedrock",
+      messages: [message],
+    });
+
+    expect(messages[0]).toBe(message);
+  });
+
+  it("pads bedrock messages whose only tool part is in input-streaming state", () => {
+    const messages = __test.prepareMessagesForProvider({
+      provider: "bedrock",
+      messages: [
+        {
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-google__search",
+              toolCallId: "call_1",
+              state: "input-streaming",
+              input: undefined,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(messages[0].parts).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringMatching(/\S/),
+      }),
+    );
+  });
+
   it("leaves bedrock messages with reasoning that carries a bedrock signature", () => {
     const message = {
       role: "assistant" as const,

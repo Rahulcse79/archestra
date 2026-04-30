@@ -68,5 +68,18 @@ function isCompletedToolPart(part: ToolPartLike) {
 }
 
 function isInputAvailableToolPart(part: ToolPartLike) {
-  return part.state === "input-available" || part.type === "tool-call";
+  // `tool-call` is the persisted ModelMessage form (always pending until a
+  // matching `tool-result` lands). For UI tool parts, anything that hasn't
+  // reached a terminal state (`output-available`, `output-error`,
+  // `output-denied`) leaves a dangling `tool_use` from Bedrock/Anthropic's
+  // perspective and must be stripped if no completion exists.
+  if (part.type === "tool-call") {
+    return true;
+  }
+  return (
+    part.state === "input-streaming" ||
+    part.state === "input-available" ||
+    part.state === "approval-requested" ||
+    part.state === "approval-responded"
+  );
 }

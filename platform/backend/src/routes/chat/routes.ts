@@ -2119,7 +2119,9 @@ function prepareMessagesForProvider(params: {
   if (provider === "bedrock") {
     return messages.map((message) =>
       ensureBedrockMessageHasContent(
-        ensureBedrockUserMessageHasTextPart(message),
+        ensureBedrockToolCallInputIsObject(
+          ensureBedrockUserMessageHasTextPart(message),
+        ),
       ),
     );
   }
@@ -2182,10 +2184,40 @@ function ensureBedrockUserMessageHasTextPart(
   };
 }
 
+// Bedrock's Converse API requires `toolUse.input` to be a JSON object — even
+// `{}` is fine, but a string, null, array, or primitive triggers
+// "The format of the value at messages.N.content.M.toolUse.input is invalid."
+// Persisted UI tool parts can land here with `input` undefined or a stringified
+// JSON: `output-error` parts fall back to `rawInput` (typed `unknown`),
+// `input-streaming` parts have `DeepPartial | undefined`. The AI SDK's bedrock
+// converter blind-casts `input as JSONObject`, so we have to repair before it
+// reaches Converse.
+function ensureBedrockToolCallInputIsObject(message: ChatMessage): ChatMessage {
+  if (!message.parts?.length) {
+    return message;
+  }
+
+  let changed = false;
+  const parts = message.parts.map((part) => {
+    if (!isBedrockToolCallPart(part)) {
+      return part;
+    }
+    const repaired = repairToolCallInput(part.input);
+    if (repaired === part.input) {
+      return part;
+    }
+    changed = true;
+    return { ...part, input: repaired };
+  });
+
+  return changed ? { ...message, parts } : message;
+}
+
 // Bedrock also rejects messages whose content array is empty after the AI SDK
-// drops empty text blocks and reasoning blocks without a signature ("The
-// content field in the Message object at messages.N is empty"). Pad with
-// placeholder text so turn alternation is preserved.
+// drops empty text blocks, reasoning blocks without a signature, and tool
+// parts in `input-streaming` state ("The content field in the Message object
+// at messages.N is empty"). Pad with placeholder text so turn alternation is
+// preserved.
 function ensureBedrockMessageHasContent(message: ChatMessage): ChatMessage {
   if (message.role === "system" || message.role === "tool") {
     return message;
@@ -2205,8 +2237,9 @@ function ensureBedrockMessageHasContent(message: ChatMessage): ChatMessage {
 }
 
 // Mirrors the AI SDK's bedrock converter: text/reasoning blocks without usable
-// payload are silently dropped; everything else (tool-call, tool-result, file,
-// image) always produces a content block.
+// payload are silently dropped; tool parts in `input-streaming` state are
+// dropped by `convertToModelMessages`; everything else (resolved tool-call,
+// tool-result, file, image) always produces a content block.
 function producesBedrockContentBlock(part: ChatMessagePart): boolean {
   if (part.type === "text") {
     return typeof part.text === "string" && part.text.trim().length > 0;
@@ -2216,7 +2249,49 @@ function producesBedrockContentBlock(part: ChatMessagePart): boolean {
       ?.bedrock as { signature?: unknown; redactedData?: unknown } | undefined;
     return Boolean(bedrock?.signature || bedrock?.redactedData);
   }
+  if (isBedrockToolCallPart(part) && part.state === "input-streaming") {
+    return false;
+  }
   return true;
+}
+
+// UI tool parts use `tool-${name}` or `dynamic-tool`; persisted ModelMessage
+// tool parts use `tool-call`. All carry the `toolUse.input` payload that
+// Bedrock's Converse API receives.
+function isBedrockToolCallPart(part: ChatMessagePart): boolean {
+  const type = part.type;
+  if (typeof type !== "string") {
+    return false;
+  }
+  return (
+    type === "tool-call" ||
+    type === "dynamic-tool" ||
+    (type.startsWith("tool-") && type !== "tool-result")
+  );
+}
+
+function repairToolCallInput(input: unknown): Record<string, unknown> {
+  if (isPlainObject(input)) {
+    return input;
+  }
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (isPlainObject(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+  return {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const BEDROCK_DOCUMENT_PLACEHOLDER_TEXT =
