@@ -3,6 +3,7 @@ import {
   DEFAULT_LLM_PROXY_NAME,
   type PaginationQuery,
   PLAYWRIGHT_MCP_CATALOG_ID,
+  TOOL_QUERY_KNOWLEDGE_SOURCES_SHORT_NAME,
   urlSlugify,
 } from "@shared";
 import {
@@ -21,6 +22,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { archestraMcpBranding } from "@/archestra-mcp-server/branding";
 import { clearChatMcpClient } from "@/clients/chat-mcp-client";
 import db, { schema } from "@/database";
 import {
@@ -140,6 +142,53 @@ class AgentModel {
       await AgentConnectorAssignmentModel.getConnectorIdsForAgents(agentIds);
     for (const agent of agents) {
       agent.connectorIds = connectorMap.get(agent.id) ?? [];
+    }
+  }
+
+  /**
+   * Reconcile each agent's `tools` list with its knowledge sources so the
+   * advertised tool list matches what the chat route will actually wire up
+   * via ToolModel.getMcpToolsByAgent. Specifically:
+   *   - inject query_knowledge_sources when the agent has knowledge sources
+   *     but the tool is not in `tools`
+   *   - strip query_knowledge_sources when the agent has no knowledge sources
+   *     but the tool is in `tools`
+   * Requires `knowledgeBaseIds` and `connectorIds` to already be populated.
+   */
+  private static async reconcileQueryKnowledgeSourcesTool(
+    agents: Agent[],
+  ): Promise<void> {
+    if (agents.length === 0) return;
+
+    const brandedKnowledgeToolName = archestraMcpBranding.getToolName(
+      TOOL_QUERY_KNOWLEDGE_SOURCES_SHORT_NAME,
+    );
+
+    let cachedKbTool: Agent["tools"][number] | null | undefined;
+    const loadKbTool = async () => {
+      if (cachedKbTool !== undefined) return cachedKbTool;
+      const tool = await ToolModel.findByName(brandedKnowledgeToolName);
+      cachedKbTool = (tool as Agent["tools"][number] | null) ?? null;
+      return cachedKbTool;
+    };
+
+    for (const agent of agents) {
+      const hasKnowledgeSources =
+        agent.knowledgeBaseIds.length > 0 || agent.connectorIds.length > 0;
+      const hasTool = agent.tools.some(
+        (t) => t.name === brandedKnowledgeToolName,
+      );
+
+      if (hasKnowledgeSources && !hasTool) {
+        const kbTool = await loadKbTool();
+        if (kbTool) {
+          agent.tools.push(kbTool);
+        }
+      } else if (!hasKnowledgeSources && hasTool) {
+        agent.tools = agent.tools.filter(
+          (t) => t.name !== brandedKnowledgeToolName,
+        );
+      }
     }
   }
 
@@ -455,7 +504,7 @@ class AgentModel {
       toolsByAgent.set(row.agentId, existing);
     }
 
-    return agents.map((agent) => ({
+    const result = agents.map((agent) => ({
       ...agent,
       tools: toolsByAgent.get(agent.id) || [],
       teams: teamsMap.get(agent.id) || [],
@@ -464,6 +513,10 @@ class AgentModel {
       connectorIds: connectorMap.get(agent.id) || [],
       suggestedPrompts: suggestedPromptsMap.get(agent.id) || [],
     }));
+
+    await AgentModel.reconcileQueryKnowledgeSourcesTool(result);
+
+    return result;
   }
 
   /**
@@ -537,7 +590,7 @@ class AgentModel {
       toolsByAgent.set(row.agentId, existing);
     }
 
-    return agents.map((agent) => ({
+    const result = agents.map((agent) => ({
       ...agent,
       tools: toolsByAgent.get(agent.id) || [],
       teams: teamsMap.get(agent.id) || [],
@@ -546,6 +599,10 @@ class AgentModel {
       connectorIds: connectorMap.get(agent.id) || [],
       suggestedPrompts: suggestedPromptsMap.get(agent.id) || [],
     }));
+
+    await AgentModel.reconcileQueryKnowledgeSourcesTool(result);
+
+    return result;
   }
 
   static async findByLabels(
@@ -998,6 +1055,13 @@ class AgentModel {
       AgentModel.populateConnectorIds(agents),
       AgentModel.populateSuggestedPrompts(agents),
     ]);
+
+    // Match runtime tool wiring (ToolModel.getMcpToolsByAgent): the
+    // query_knowledge_sources tool must appear in `tools` iff the agent has
+    // knowledge sources. Inject when missing, strip when extra. Without this,
+    // spark__list_agents advertises a tool list that diverges from what the
+    // chat route exposes to Bedrock, and the model calls non-existent tools.
+    await AgentModel.reconcileQueryKnowledgeSourcesTool(agents);
 
     return createPaginatedResult(agents, Number(totalResult), pagination);
   }
