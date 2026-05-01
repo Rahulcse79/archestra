@@ -6,7 +6,12 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { vi } from "vitest";
-import { InteractionModel, ModelModel, VirtualApiKeyModel } from "@/models";
+import {
+  InteractionModel,
+  LlmProviderApiKeyModelLinkModel,
+  ModelModel,
+  VirtualApiKeyModel,
+} from "@/models";
 import { afterEach, beforeEach, describe, expect, test } from "@/test";
 import {
   type AnthropicStubOptions,
@@ -100,6 +105,7 @@ async function createModelRouterVirtualKey(params: {
       provider: params.provider,
     },
   );
+  await linkAllProviderModelsToApiKey(params.provider, chatApiKey.id);
   return VirtualApiKeyModel.create({
     chatApiKeyId: chatApiKey.id,
     name: `${params.provider} model router virtual key`,
@@ -111,6 +117,17 @@ async function createModelRouterVirtualKey(params: {
       },
     ],
   });
+}
+
+async function linkAllProviderModelsToApiKey(
+  provider: SupportedProvider,
+  apiKeyId: string,
+) {
+  const models = await ModelModel.findAll({ provider });
+  await LlmProviderApiKeyModelLinkModel.linkModelsToApiKey(
+    apiKeyId,
+    models.map((m) => m.id),
+  );
 }
 
 const ROUTABLE_PROVIDER_CASES: Array<{
@@ -781,6 +798,7 @@ describe("model router proxy routes", () => {
     const chatApiKey = await makeLlmProviderApiKey(organization.id, secret.id, {
       provider: "openai",
     });
+    await linkAllProviderModelsToApiKey("openai", chatApiKey.id);
     const {
       virtualKey: { id: virtualKeyId },
       value,
@@ -852,6 +870,7 @@ describe("model router proxy routes", () => {
       name: "Vertex AI",
       provider: "gemini",
     });
+    await linkAllProviderModelsToApiKey("gemini", systemKey.id);
     const { value } = await VirtualApiKeyModel.create({
       chatApiKeyId: systemKey.id,
       name: "model-router-gemini-system-vk",
@@ -1001,6 +1020,8 @@ describe("model router proxy routes", () => {
       groqSecret.id,
       { provider: "groq" },
     );
+    await linkAllProviderModelsToApiKey("openai", openaiKey.id);
+    await linkAllProviderModelsToApiKey("groq", groqKey.id);
     const { value } = await VirtualApiKeyModel.create({
       chatApiKeyId: openaiKey.id,
       name: "model-router-openai-groq-vk",
@@ -1175,6 +1196,8 @@ describe("model router proxy routes", () => {
       groqSecret.id,
       { provider: "groq" },
     );
+    await linkAllProviderModelsToApiKey("openai", openaiKey.id);
+    await linkAllProviderModelsToApiKey("groq", groqKey.id);
     const { value } = await VirtualApiKeyModel.create({
       chatApiKeyId: openaiKey.id,
       name: "model-router-multi-vk",
@@ -1343,5 +1366,62 @@ describe("model router proxy routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.message).toContain("not mapped");
+  });
+
+  test("excludes models that exist for the mapped provider but are not linked to the virtual key's chat api key", async ({
+    makeAgent,
+    makeOrganization,
+    makeSecret,
+    makeLlmProviderApiKey,
+  }) => {
+    const app = createFastifyApp();
+    await app.register(modelRouterProxyRoutes);
+    await upsertModel({ provider: "groq", modelId: "llama-3.1-8b-instant" });
+    await upsertModel({ provider: "groq", modelId: "unlinked-model" });
+    const organization = await makeOrganization();
+    const { value } = await createModelRouterVirtualKey({
+      organizationId: organization.id,
+      provider: "groq",
+      makeSecret,
+      makeLlmProviderApiKey,
+    });
+    // Add a second model AFTER the virtual key so it's not linked
+    await upsertModel({ provider: "groq", modelId: "added-after-link" });
+    const agent = await makeAgent({
+      organizationId: organization.id,
+      name: "Unlinked Model Test Agent",
+      agentType: "llm_proxy",
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/v1/model-router/${agent.id}/models`,
+      headers: {
+        authorization: `Bearer ${value}`,
+      },
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    const listedIds = listResponse.json().data.map((m: { id: string }) => m.id);
+    expect(listedIds).toContain("groq:llama-3.1-8b-instant");
+    expect(listedIds).toContain("groq:unlinked-model");
+    expect(listedIds).not.toContain("groq:added-after-link");
+
+    const routeResponse = await app.inject({
+      method: "POST",
+      url: `/v1/model-router/${agent.id}/chat/completions`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${value}`,
+        "user-agent": "test-client",
+      },
+      payload: {
+        model: "groq:added-after-link",
+        messages: [{ role: "user", content: "Hello" }],
+      },
+    });
+
+    expect(routeResponse.statusCode).toBe(404);
+    expect(routeResponse.json().error.message).toContain("not available");
   });
 });
