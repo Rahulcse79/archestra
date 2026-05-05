@@ -825,7 +825,15 @@ export function ChatMessages({
 
                       case "reasoning":
                         return (
-                          <Reasoning key={partKey} className="w-full">
+                          <Reasoning
+                            key={partKey}
+                            className="w-full"
+                            isStreaming={
+                              status === "streaming" &&
+                              i === message.parts.length - 1 &&
+                              message.id === messages.at(-1)?.id
+                            }
+                          >
                             <ReasoningTrigger />
                             <ReasoningContent>{part.text}</ReasoningContent>
                           </Reasoning>
