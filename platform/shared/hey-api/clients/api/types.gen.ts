@@ -26621,6 +26621,7 @@ export type GetInternalMcpCatalogResponses = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -26747,6 +26748,7 @@ export type CreateInternalMcpCatalogItemData = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -26938,6 +26940,7 @@ export type CreateInternalMcpCatalogItemResponses = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -27226,6 +27229,7 @@ export type GetInternalMcpCatalogItemResponses = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -27350,6 +27354,7 @@ export type UpdateInternalMcpCatalogItemData = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -27543,6 +27548,7 @@ export type UpdateInternalMcpCatalogItemResponses = {
             scopes?: Array<string>;
             audience?: string;
             clientIdOverride?: string;
+            clientSecretOverride?: string;
             tokenInjectionMode?: 'authorization_bearer' | 'raw_authorization' | 'header' | 'env' | 'body_field';
             headerName?: string;
             envVarName?: string;
@@ -28443,7 +28449,7 @@ export type GetKnowledgeBasesResponses = {
             connectors: Array<{
                 id: string;
                 name: string;
-                connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+                connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
             }>;
             totalDocsIndexed: number;
             assignedAgents: Array<{
@@ -28921,7 +28927,7 @@ export type GetConnectorsData = {
         offset?: number;
         knowledgeBaseId?: string;
         search?: string;
-        connectorType?: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+        connectorType?: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
     };
     url: '/api/connectors';
 };
@@ -29003,7 +29009,7 @@ export type GetConnectorsResponses = {
             description: string | null;
             visibility: 'org-wide' | 'team-scoped';
             teamIds: Array<string>;
-            connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+            connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
             config: {
                 type: 'jira';
                 jiraBaseUrl: unknown;
@@ -29075,6 +29081,8 @@ export type GetConnectorsResponses = {
                 maxDepth?: number;
                 fileTypes?: Array<string>;
                 batchSize?: number;
+            } | {
+                type: 'file_upload';
             } | {
                 type: 'dropbox';
                 rootPath?: string;
@@ -29153,7 +29161,7 @@ export type CreateConnectorData = {
         description?: string | null;
         visibility?: 'org-wide' | 'team-scoped';
         teamIds?: Array<string>;
-        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
         config: {
             type: 'jira';
             jiraBaseUrl: string;
@@ -29225,6 +29233,8 @@ export type CreateConnectorData = {
             maxDepth?: number;
             fileTypes?: Array<string>;
             batchSize?: number;
+        } | {
+            type: 'file_upload';
         } | {
             type: 'dropbox';
             rootPath?: string;
@@ -29356,7 +29366,7 @@ export type CreateConnectorResponses = {
         description: string | null;
         visibility: 'org-wide' | 'team-scoped';
         teamIds: Array<string>;
-        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
         config: {
             type: 'jira';
             jiraBaseUrl: unknown;
@@ -29428,6 +29438,8 @@ export type CreateConnectorResponses = {
             maxDepth?: number;
             fileTypes?: Array<string>;
             batchSize?: number;
+        } | {
+            type: 'file_upload';
         } | {
             type: 'dropbox';
             rootPath?: string;
@@ -29656,7 +29668,7 @@ export type GetConnectorResponses = {
         description: string | null;
         visibility: 'org-wide' | 'team-scoped';
         teamIds: Array<string>;
-        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
         config: {
             type: 'jira';
             jiraBaseUrl: unknown;
@@ -29728,6 +29740,8 @@ export type GetConnectorResponses = {
             maxDepth?: number;
             fileTypes?: Array<string>;
             batchSize?: number;
+        } | {
+            type: 'file_upload';
         } | {
             type: 'dropbox';
             rootPath?: string;
@@ -29865,6 +29879,8 @@ export type UpdateConnectorData = {
             fileTypes?: Array<string>;
             batchSize?: number;
         } | {
+            type: 'file_upload';
+        } | {
             type: 'dropbox';
             rootPath?: string;
             fileTypes?: Array<string>;
@@ -29996,7 +30012,7 @@ export type UpdateConnectorResponses = {
         description: string | null;
         visibility: 'org-wide' | 'team-scoped';
         teamIds: Array<string>;
-        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
+        connectorType: 'jira' | 'confluence' | 'github' | 'gitlab' | 'servicenow' | 'notion' | 'sharepoint' | 'gdrive' | 'file_upload' | 'dropbox' | 'onedrive' | 'asana' | 'linear' | 'outline' | 'salesforce';
         config: {
             type: 'jira';
             jiraBaseUrl: unknown;
@@ -30068,6 +30084,8 @@ export type UpdateConnectorResponses = {
             maxDepth?: number;
             fileTypes?: Array<string>;
             batchSize?: number;
+        } | {
+            type: 'file_upload';
         } | {
             type: 'dropbox';
             rootPath?: string;
@@ -30866,6 +30884,390 @@ export type GetConnectorRunResponses = {
 };
 
 export type GetConnectorRunResponse = GetConnectorRunResponses[keyof GetConnectorRunResponses];
+
+export type GetConnectorFilesData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: {
+        limit?: number;
+        offset?: number;
+        search?: string;
+    };
+    url: '/api/connectors/{id}/files';
+};
+
+export type GetConnectorFilesErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+            internal_code?: string;
+        };
+    };
+};
+
+export type GetConnectorFilesError = GetConnectorFilesErrors[keyof GetConnectorFilesErrors];
+
+export type GetConnectorFilesResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        data: Array<{
+            id: string;
+            connectorId: string;
+            originalName: string;
+            mimeType: string;
+            fileSize: number;
+            contentHash: string;
+            createdAt: string;
+            processingStatus: string;
+            processingError: string | null;
+            embeddingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+        }>;
+        pagination: {
+            currentPage: number;
+            limit: number;
+            total: number;
+            totalPages: number;
+            hasNext: boolean;
+            hasPrev: boolean;
+        };
+    };
+};
+
+export type GetConnectorFilesResponse = GetConnectorFilesResponses[keyof GetConnectorFilesResponses];
+
+export type UploadConnectorFilesData = {
+    body: {
+        files: Array<{
+            name: string;
+            mimeType: string;
+            content: string;
+        }>;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/connectors/{id}/files';
+};
+
+export type UploadConnectorFilesErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+            internal_code?: string;
+        };
+    };
+};
+
+export type UploadConnectorFilesError = UploadConnectorFilesErrors[keyof UploadConnectorFilesErrors];
+
+export type UploadConnectorFilesResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        results: Array<{
+            filename: string;
+            status: 'created' | 'duplicate' | 'unsupported' | 'too_large' | 'extraction_failed';
+            fileId?: string;
+        }>;
+    };
+};
+
+export type UploadConnectorFilesResponse = UploadConnectorFilesResponses[keyof UploadConnectorFilesResponses];
+
+export type DeleteConnectorFileData = {
+    body?: never;
+    path: {
+        id: string;
+        fileId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{id}/files/{fileId}';
+};
+
+export type DeleteConnectorFileErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+            internal_code?: string;
+        };
+    };
+};
+
+export type DeleteConnectorFileError = DeleteConnectorFileErrors[keyof DeleteConnectorFileErrors];
+
+export type DeleteConnectorFileResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        success: boolean;
+    };
+};
+
+export type DeleteConnectorFileResponse = DeleteConnectorFileResponses[keyof DeleteConnectorFileResponses];
+
+export type GetConnectorFileData = {
+    body?: never;
+    path: {
+        id: string;
+        fileId: string;
+    };
+    query?: never;
+    url: '/api/connectors/{id}/files/{fileId}';
+};
+
+export type GetConnectorFileErrors = {
+    /**
+     * Default Response
+     */
+    400: {
+        error: {
+            message: string;
+            type: 'api_validation_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    401: {
+        error: {
+            message: string;
+            type: 'api_authentication_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    403: {
+        error: {
+            message: string;
+            type: 'api_authorization_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    404: {
+        error: {
+            message: string;
+            type: 'api_not_found_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    409: {
+        error: {
+            message: string;
+            type: 'api_conflict_error';
+            internal_code?: string;
+        };
+    };
+    /**
+     * Default Response
+     */
+    500: {
+        error: {
+            message: string;
+            type: 'api_internal_server_error';
+            internal_code?: string;
+        };
+    };
+};
+
+export type GetConnectorFileError = GetConnectorFileErrors[keyof GetConnectorFileErrors];
+
+export type GetConnectorFileResponses = {
+    /**
+     * Default Response
+     */
+    200: {
+        id: string;
+        connectorId: string;
+        originalName: string;
+        mimeType: string;
+        fileSize: number;
+        contentHash: string;
+        createdAt: string;
+        processingStatus: string;
+        processingError: string | null;
+        embeddingStatus: 'pending' | 'processing' | 'completed' | 'failed';
+    };
+};
+
+export type GetConnectorFileResponse = GetConnectorFileResponses[keyof GetConnectorFileResponses];
 
 export type GetLimitsData = {
     body?: never;

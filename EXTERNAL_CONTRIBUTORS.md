@@ -215,3 +215,9 @@ To unblock real contributors without re-opening the floodgates, sign in via GitH
 - @jordelmir
 - @fymak99-web
 - @BossChaos
+- @cosmickdd
+- @atif07-art
+- @keyurhariyani
+- @guptadeepak8
+- @CrocCartelDevTeam
+- @BISHT-CX
