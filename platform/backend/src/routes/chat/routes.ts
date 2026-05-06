@@ -2076,14 +2076,11 @@ function getMessagesNotYetPersisted(params: {
   uiMessages: ChatMessage[];
 }): ChatMessage[] {
   const existingIds = new Set<string>();
+  const existingContentSignatures = new Set<string>();
 
   for (const message of params.existingMessages) {
     existingIds.add(message.id);
 
-    // Persisted messages are re-keyed to DB UUIDs when conversations reload, but
-    // in-flight useChat requests can still carry the original temporary content
-    // ids. Track both forms so follow-up turns after swap_agent do not get
-    // dropped just because the incoming thread is shorter than the DB thread.
     const contentId =
       typeof message.content === "object" &&
       message.content !== null &&
@@ -2095,15 +2092,120 @@ function getMessagesNotYetPersisted(params: {
     if (contentId) {
       existingIds.add(contentId);
     }
+
+    const contentSignature = getMessageContentSignature(message.content);
+    if (contentSignature) {
+      existingContentSignatures.add(contentSignature);
+    }
   }
 
+  const seenInBatch = new Set<string>();
+
   return params.uiMessages.filter((message) => {
-    if (!message.id || typeof message.id !== "string") {
-      return true;
+    const messageId =
+      message.id && typeof message.id === "string" ? message.id : null;
+
+    if (messageId && existingIds.has(messageId)) {
+      return false;
     }
 
-    return !existingIds.has(message.id);
+    const signature = getMessageContentSignature(message);
+    if (signature) {
+      if (existingContentSignatures.has(signature)) {
+        return false;
+      }
+      // Guard against the same logical message appearing twice in the same
+      // batch with different ids (e.g. one with id="", one with a real id).
+      if (seenInBatch.has(signature)) {
+        return false;
+      }
+      seenInBatch.add(signature);
+      existingContentSignatures.add(signature);
+    }
+
+    if (messageId) {
+      existingIds.add(messageId);
+    }
+
+    return true;
   });
+}
+
+
+function getMessageContentSignature(content: unknown): string | null {
+  if (
+    typeof content !== "object" ||
+    content === null ||
+    !("role" in content)
+  ) {
+    return null;
+  }
+
+  const role =
+    typeof (content as { role?: unknown }).role === "string"
+      ? (content as { role: string }).role
+      : null;
+  if (!role) {
+    return null;
+  }
+
+  const parts = (content as { parts?: unknown }).parts;
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return null;
+  }
+
+  const significantParts: string[] = [];
+  for (const rawPart of parts) {
+    if (typeof rawPart !== "object" || rawPart === null) continue;
+    const part = rawPart as {
+      type?: unknown;
+      text?: unknown;
+      toolCallId?: unknown;
+      toolName?: unknown;
+    };
+    const type = typeof part.type === "string" ? part.type : "";
+
+    // Skip transient streaming parts that may or may not be present depending
+    // on when the message snapshot was taken.
+    if (
+      type === "step-start" ||
+      type === "step-end" ||
+      type.startsWith("data-")
+    ) {
+      continue;
+    }
+
+    if (type === "text" || type === "reasoning") {
+      const text = typeof part.text === "string" ? part.text : "";
+      if (text.length === 0) continue;
+      significantParts.push(`${type}:${text}`);
+      continue;
+    }
+
+    if (type.startsWith("tool-") || type === "dynamic-tool") {
+      const toolCallId =
+        typeof part.toolCallId === "string" ? part.toolCallId : "";
+      const toolName =
+        typeof part.toolName === "string" ? part.toolName : "";
+      if (toolCallId) {
+        significantParts.push(`${type}:${toolCallId}`);
+      } else if (toolName) {
+        significantParts.push(`${type}:name:${toolName}`);
+      }
+      continue;
+    }
+
+    if (type === "file") {
+      significantParts.push("file");
+      continue;
+    }
+  }
+
+  if (significantParts.length === 0) {
+    return null;
+  }
+
+  return `${role}|${significantParts.join("\u0000")}`;
 }
 
 function prepareMessagesForProvider(params: {

@@ -708,10 +708,18 @@ export function ChatMessages({
                                 {parsedParts.map((parsedPart, parsedIdx) => {
                                   const parsedKey = `${partKey}-parsed-${parsedIdx}`;
                                   if (parsedPart.type === "reasoning") {
+                                    const isLastParsedPart =
+                                      parsedIdx === parsedParts.length - 1;
+                                    const isReasoningStreaming =
+                                      status === "streaming" &&
+                                      idx === messages.length - 1 &&
+                                      isLastPartInMessage &&
+                                      isLastParsedPart;
                                     return (
                                       <Reasoning
                                         key={parsedKey}
                                         className="w-full"
+                                        isStreaming={isReasoningStreaming}
                                       >
                                         <ReasoningTrigger />
                                         <ReasoningContent>

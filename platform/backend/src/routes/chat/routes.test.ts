@@ -318,6 +318,170 @@ describe("getMessagesNotYetPersisted", () => {
     expect(newMessages).toHaveLength(1);
     expect(newMessages[0]?.id).toBe("assistant-1");
   });
+
+  it("does not re-persist an assistant message whose previous emission was saved with an empty id but the same text", () => {
+    const newMessages = __test.getMessagesNotYetPersisted({
+      existingMessages: [
+        {
+          id: "db-user-1",
+          content: {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+        {
+          // Saved mid-stream with id=""
+          id: "db-assistant-early",
+          content: {
+            id: "",
+            role: "assistant",
+            parts: [
+              { type: "step-start" },
+              { type: "text", text: "Hi there!" },
+            ],
+          },
+        },
+      ],
+      uiMessages: [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        },
+        {
+          // Same logical message, now has real id after stream ended
+          id: "real-assistant-id",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            { type: "text", text: "Hi there!" },
+            {
+              type: "data-token-usage",
+              data: { inputTokens: 5, outputTokens: 3 },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(newMessages).toHaveLength(0);
+  });
+
+  it("does not persist the same logical message twice when it appears twice in the same batch with different ids", () => {
+    const newMessages = __test.getMessagesNotYetPersisted({
+      existingMessages: [],
+      uiMessages: [
+        {
+          id: "",
+          role: "assistant",
+          parts: [{ type: "text", text: "Same answer" }],
+        },
+        {
+          id: "real-id",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Same answer" },
+            { type: "data-heartbeat", data: { timestamp: 123 } },
+          ],
+        },
+      ],
+    });
+
+    // Only the first emission should be kept
+    expect(newMessages).toHaveLength(1);
+  });
+
+  it("still persists distinct assistant messages with the same id but different text", () => {
+    const newMessages = __test.getMessagesNotYetPersisted({
+      existingMessages: [],
+      uiMessages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "First answer" }],
+        },
+        {
+          id: "assistant-2",
+          role: "assistant",
+          parts: [{ type: "text", text: "Second answer" }],
+        },
+      ],
+    });
+
+    expect(newMessages).toHaveLength(2);
+  });
+
+  it("dedupes by tool call id even when the same tool result is re-emitted with a different message id", () => {
+    const newMessages = __test.getMessagesNotYetPersisted({
+      existingMessages: [
+        {
+          id: "db-assistant-1",
+          content: {
+            id: "",
+            role: "assistant",
+            parts: [
+              {
+                type: "tool-search",
+                toolCallId: "tc-1",
+                state: "result",
+                result: "ok",
+              },
+            ],
+          },
+        },
+      ],
+      uiMessages: [
+        {
+          id: "assistant-final",
+          role: "assistant",
+          parts: [
+            {
+              type: "tool-search",
+              toolCallId: "tc-1",
+              state: "result",
+              result: "ok",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(newMessages).toHaveLength(0);
+  });
+
+  it("does not match unrelated assistant messages whose only shared parts are step-start/data-* transients", () => {
+    const newMessages = __test.getMessagesNotYetPersisted({
+      existingMessages: [
+        {
+          id: "db-assistant-1",
+          content: {
+            id: "a1",
+            role: "assistant",
+            parts: [
+              { type: "step-start" },
+              { type: "data-heartbeat", data: { timestamp: 1 } },
+            ],
+          },
+        },
+      ],
+      uiMessages: [
+        {
+          id: "a2",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            { type: "data-heartbeat", data: { timestamp: 2 } },
+            { type: "text", text: "Different response" },
+          ],
+        },
+      ],
+    });
+
+    // a2 has different significant text so should NOT be filtered out
+    expect(newMessages).toHaveLength(1);
+    expect(newMessages[0]?.id).toBe("a2");
+  });
 });
 
 describe("extractFirstMessages", () => {
