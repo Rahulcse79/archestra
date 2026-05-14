@@ -378,6 +378,9 @@ export const requiredEndpointPermissionsMap: Partial<
   [RouteId.CloneAgent]: {},
   [RouteId.UpdateAgent]: {},
   [RouteId.DeleteAgent]: {},
+  // Export/Import: agent-type permission checked dynamically in handler
+  [RouteId.ExportAgent]: {},
+  [RouteId.ImportAgent]: {},
   [RouteId.GetDefaultMcpGateway]: {
     mcpGateway: ["read"],
   },
@@ -802,6 +805,9 @@ export const requiredEndpointPermissionsMap: Partial<
     llmLimit: ["delete"],
   },
   [RouteId.GetOptimizationRules]: {
+    optimizationRule: ["read"],
+  },
+  [RouteId.GetOptimizationRule]: {
     optimizationRule: ["read"],
   },
   [RouteId.CreateOptimizationRule]: {

@@ -9,6 +9,8 @@ export const RouteId = {
   GetDefaultLlmProxy: "getDefaultLlmProxy",
   UpdateAgent: "updateAgent",
   DeleteAgent: "deleteAgent",
+  ExportAgent: "exportAgent",
+  ImportAgent: "importAgent",
   GetLabelKeys: "getLabelKeys",
   GetLabelValues: "getLabelValues",
 
@@ -390,6 +392,7 @@ export const RouteId = {
 
   // Optimization Rule Routes
   GetOptimizationRules: "getOptimizationRules",
+  GetOptimizationRule: "getOptimizationRule",
   CreateOptimizationRule: "createOptimizationRule",
   UpdateOptimizationRule: "updateOptimizationRule",
   DeleteOptimizationRule: "deleteOptimizationRule",
